@@ -10,3 +10,4 @@ release/
 --full-page
 docs/diagram-*.html
 public/
+.diagram-design/
