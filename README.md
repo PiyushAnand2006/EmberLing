@@ -35,6 +35,10 @@ The **desktop mark**: an always-on-top draggable orb (click to open, drop files 
 
 ## Architecture
 
+![Emberling system architecture](docs/diagram-architecture.png)
+
+The renderer talks to the Electron main process through a contextBridge IPC boundary; there, the agent loop drives a fallback chain of free LLM providers and an approval-gated tool host, persisting everything to local JSON. Keyless Pollinations chats out of the box — but tool calls need a keyed provider; MCP servers join their tools as `mcp_<server>_<tool>`.
+
 ```
 ┌────────────────────────────── Windows ──────────────────────────────┐
 │                                                                     │
@@ -65,6 +69,12 @@ The **desktop mark**: an always-on-top draggable orb (click to open, drop files 
 - **`electron/mcp.js`** — real MCP stdio JSON-RPC client (initialize → tools/list → tools/call).
 - **`electron/publish.js`** — HTTP server hosting published bots as web chats with token links + access control.
 - **`src/`** — React renderer: chat (bubbles, tool lines, approval/form cards, mermaid/chart/html/clip blocks), composer, screens (Settings/Bots/Memories/Automations/Integrations/Onboarding), i18n (8 locales), design tokens extracted verbatim from the original's CSS.
+
+### One agent turn
+
+![One agent turn, end to end](docs/diagram-agent-turn.png)
+
+A message flows to the main-process agent loop, which streams from the active provider (failing over to the next configured key on error). Every proposed tool call waits on your approval before the tool host executes it; results feed back into the next model call — looping up to 24 steps until the final reply streams in.
 
 Design tokens recovered by REA (exact values): chrome `#141414`, pane `#181818`, brand `#f54e00`, accent `#599ce7`, Nord-style semantic palette, 4px spacing scale, 8/12px radii, bubble fills `#1c1c1c` / `#1c1c1c0f`.
 
