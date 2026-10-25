@@ -1,0 +1,5 @@
+node_modules/
+renderer-build/
+release/
+.rea-extract/
+*.log
