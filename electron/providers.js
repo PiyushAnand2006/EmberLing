@@ -280,13 +280,37 @@ async function streamChat({ config, messages, tools, signal, onDelta, onDone }) 
   return final;
 }
 
+// Models routinely emit tool args with raw Windows paths ("C:\Users\…") whose
+// single backslashes are invalid JSON escapes (or valid-but-wrong ones like
+// \t in "\thaku"). Strict parse first, then progressively looser repairs; the
+// aggressive pass treats every isolated backslash as a literal path separator.
 function safeJson(s) {
   if (typeof s !== "string" || !s.trim()) return {};
-  try {
-    return JSON.parse(s);
-  } catch {
-    return { _raw: s };
+  for (const candidate of jsonRepairCandidates(s)) {
+    try {
+      return JSON.parse(candidate);
+    } catch {}
   }
+  return { _raw: s };
+}
+
+function jsonRepairCandidates(s) {
+  // A raw drive-letter path ("C:\U…" where the char after the backslash is not
+  // a backslash) means the model emitted unescaped Windows separators — strict
+  // parsing would then "succeed" with silent corruption (\t → TAB), so the
+  // aggressive repair must run before any strict attempt for those strings.
+  const rawWinPath = /["'][A-Za-z]:\\[^\\]/.test(s);
+  const obj = s.match(/\{[\s\S]*\}/);
+  const bases = obj && obj[0] !== s ? [s, obj[0]] : [s];
+  const out = [];
+  for (const base of bases) {
+    if (rawWinPath) out.push(base.replace(/(?<!\\)\\(?!\\)/g, "\\\\"));
+    if (!rawWinPath) out.push(base);
+    if (obj && base === obj[0]) out.push(base);
+    out.push(base.replace(/\\(?![\\/"bfnrtu])/g, "\\\\"));
+    if (!rawWinPath) out.push(base.replace(/(?<!\\)\\(?!\\)/g, "\\\\"));
+  }
+  return out;
 }
 
 // Multi-provider attempt with fallback. `attempt(i, config)` does the real call.
@@ -340,4 +364,4 @@ async function transcribeWith(url, key, model, filePath, mimeType) {
   return json.text || "";
 }
 
-module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, transcribe, fetchModels, modelsUrl };
+module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, transcribe, fetchModels, modelsUrl, safeJson };

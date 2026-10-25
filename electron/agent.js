@@ -103,12 +103,33 @@ function normalizeToolJson(parsed) {
   return { name, args: parsed.arguments || parsed.args || parsed.parameters || {} };
 }
 
+// Mirror of providers.js safeJson's repair ladder (text-mode request parsing).
 function safeJson(s) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
+  for (const candidate of jsonRepairCandidates(String(s || ""))) {
+    try {
+      return JSON.parse(candidate);
+    } catch {}
   }
+  return null;
+}
+
+function jsonRepairCandidates(s) {
+  // A raw drive-letter path ("C:\U…" where the char after the backslash is not
+  // a backslash) means the model emitted unescaped Windows separators — strict
+  // parsing would then "succeed" with silent corruption (\t → TAB), so the
+  // aggressive repair must run before any strict attempt for those strings.
+  const rawWinPath = /["'][A-Za-z]:\\[^\\]/.test(s);
+  const obj = s.match(/\{[\s\S]*\}/);
+  const bases = obj && obj[0] !== s ? [s, obj[0]] : [s];
+  const out = [];
+  for (const base of bases) {
+    if (rawWinPath) out.push(base.replace(/(?<!\\)\\(?!\\)/g, "\\\\"));
+    if (!rawWinPath) out.push(base);
+    if (obj && base === obj[0]) out.push(base);
+    out.push(base.replace(/\\(?![\\/"bfnrtu])/g, "\\\\"));
+    if (!rawWinPath) out.push(base.replace(/(?<!\\)\\(?!\\)/g, "\\\\"));
+  }
+  return out;
 }
 
 // Streams tool-request markup to the chat bubble otherwise; hold back a tail

@@ -135,6 +135,31 @@ async function webFetch(rawUrl) {
   return truncate(stripHtml(body), 12000);
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Pollinations image generation is flaky under load (transient 5xx) and
+// throttles bursts (402/429); probe with spaced retries before giving up.
+async function probeImage(url) {
+  let lastErr = null;
+  for (let i = 0; i < 4; i++) {
+    try {
+      const probe = await fetch(url, { method: "GET", headers: { Range: "bytes=0-64" } });
+      if (probe.ok || probe.status === 206) return;
+      lastErr = new Error(`image endpoint HTTP ${probe.status}`);
+      if (probe.status === 402 || probe.status === 429) {
+        const text = await probe.text().catch(() => "");
+        const wait = Number(probe.headers.get("retry-after") || (text.match(/Retry after (\d+)\s*s/i) || [])[1] || 0);
+        await sleep(Math.min(wait * 1000 + 3000, 45000));
+        continue;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+    await sleep(2000 * (i + 1));
+  }
+  throw lastErr || new Error("image endpoint unreachable");
+}
+
 /**
  * Generate a photo with the free keyless Pollinations endpoint.
  * @param {string} prompt - image description
@@ -148,8 +173,7 @@ async function generatePhoto(prompt) {
   url.searchParams.set("height", "1024");
   url.searchParams.set("seed", String(seed));
   url.searchParams.set("nologo", "true");
-  const probe = await fetch(url, { method: "GET", headers: { Range: "bytes=0-64" } });
-  if (!probe.ok && probe.status !== 206) throw new Error(`image endpoint HTTP ${probe.status}`);
+  await probeImage(url);
   return { url: url.toString(), prompt: String(prompt) };
 }
 
@@ -173,8 +197,7 @@ async function generateVideo(prompt, frames = 5) {
     urls.push(url.toString());
   }
   // probe first frame so failures surface now
-  const probe = await fetch(urls[0], { method: "GET", headers: { Range: "bytes=0-64" } });
-  if (!probe.ok && probe.status !== 206) throw new Error(`video endpoint HTTP ${probe.status}`);
+  await probeImage(urls[0]);
   return {
     ok: true,
     frames: urls,
