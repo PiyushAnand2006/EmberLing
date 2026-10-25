@@ -41,7 +41,8 @@ const SNIPPET_RE = /<(?:td|a)[^>]*class=['"][^'"]*result(?:-snippet|__snippet)[^
  * @param {string} query - plain search phrase
  */
 async function webSearch(query) {
-  // lite endpoint first (simpler markup, lighter bot walls), html as fallback
+  // lite endpoint first (simpler markup, lighter bot walls), html as fallback,
+  // then the keyless JSON instant-answer API when the page endpoints bot-wall
   const endpoints = [
     { base: "https://lite.duckduckgo.com/lite/", param: "q" },
     { base: "https://html.duckduckgo.com/html/", param: "q" },
@@ -76,7 +77,45 @@ async function webSearch(query) {
       lastErr = err;
     }
   }
-  throw lastErr || new Error("search failed");
+  try {
+    const jsonResults = await ddgInstantAnswers(query);
+    if (jsonResults.length) return jsonResults;
+  } catch (err) {
+    lastErr = lastErr || err;
+  }
+  if (lastErr) {
+    throw new Error(
+      `${lastErr.message}. Search endpoints are rate-limiting this network — try again shortly, or use web_fetch on a likely URL (e.g. wikipedia.org, the topic's official site) instead.`
+    );
+  }
+  throw new Error("search failed");
+}
+
+// Keyless JSON API — no bot wall, but thinner coverage: the instant answer
+// abstract plus related topics, mapped to the same { title, url, snippet } shape.
+async function ddgInstantAnswers(query) {
+  const url = new URL("https://api.duckduckgo.com/");
+  url.searchParams.set("q", String(query));
+  url.searchParams.set("format", "json");
+  url.searchParams.set("no_html", "1");
+  url.searchParams.set("skip_disambig", "1");
+  const res = await fetch(url, { headers: BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`instant-answer API HTTP ${res.status}`);
+  const json = await res.json();
+  const out = [];
+  const push = (title, u, snippet) => {
+    if (!u || out.length >= 8) return;
+    out.push({ title: String(title || u), url: String(u), snippet: String(snippet || "").slice(0, 400) });
+  };
+  if (json.AbstractText) push(json.Heading, json.AbstractURL, json.AbstractText);
+  const walk = (topics) => {
+    for (const t of topics || []) {
+      if (t.Topics) walk(t.Topics);
+      else if (t.FirstURL) push(t.Text?.split(" - ")[0], t.FirstURL, t.Text);
+    }
+  };
+  walk(json.RelatedTopics);
+  return out;
 }
 
 /**

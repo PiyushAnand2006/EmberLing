@@ -343,8 +343,10 @@ async function executeTool(call, ctx) {
       case "list_dir":
         return { ok: true, entries: await listDir(args.path) };
       case "web_search":
+        if (!String(args.query || "").trim()) return { ok: false, error: "web_search needs a non-empty 'query' string argument." };
         return { ok: true, results: await webSearch(args.query) };
       case "web_fetch":
+        if (!/^https?:\/\//i.test(String(args.url || ""))) return { ok: false, error: "web_fetch needs a full http(s) 'url' argument." };
         return { ok: true, content: await webFetch(args.url) };
       case "generate_photo":
         return await generatePhoto(args.prompt);

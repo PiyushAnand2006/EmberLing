@@ -2,8 +2,8 @@
 // calls through approval, feed results back, repeat — mirroring the original
 // transcript protocol (status → tool line → result → reply).
 
+const providers = require("./providers");
 const { TOOL_DEFS, executeTool, STATUS_BY_TOOL } = require("./tools");
-const { streamChat, withFallback } = require("./providers");
 
 const MAX_STEPS = 24;
 
@@ -27,6 +27,145 @@ function systemPrompt(opts) {
   return lines.join("\n");
 }
 
+/* ---------- text-mode tool protocol ----------
+ * Keyless providers (Pollinations) reject the OpenAI `tools` parameter, so the
+ * model there can't make API-level tool calls. For those providers we describe
+ * the tools in the system prompt and let the model request them as text; the
+ * requests are parsed, executed, and the result fed back as a plain message.
+ * Also matches the tool-call shapes small models leak into plain text
+ * (Mistral [TOOL_CALLS], GPT-OSS harmony "to=functions.NAME"). */
+
+const TOOL_MARKER_RE = /```tool[^\S\n]*\n?([\s\S]*?)```/i;
+const TOOL_CALLS_RE = /\[TOOL_CALLS\]\s*(\[[\s\S]*?\]|\{[\s\S]*?\})/;
+const HARMONY_RE = /to=functions\.([A-Za-z_]\w*)\s*(\{[\s\S]*?\})/;
+
+function textToolProtocol(tools) {
+  const lines = [
+    "Tool calling on this provider: when you need a tool, reply with exactly one fenced block and nothing after it:",
+    "```tool",
+    '{"name": "TOOL_NAME", "arguments": { ... }}',
+    "```",
+    "Then stop — the tool result arrives as the next message prefixed with [tool result]. Never invent results.",
+    "Available tools:",
+  ];
+  for (const t of tools) {
+    const f = t.function;
+    const req = (f.parameters?.required || []).join(", ");
+    const desc = String(f.description || "").split(".")[0];
+    lines.push(`- ${f.name}${req ? ` (${req})` : ""}: ${desc}`);
+  }
+  return lines.join("\n");
+}
+
+// Returns { name, args } for a tool request found in the model's text,
+// { invalid } when a request is present but unparseable, or null when the
+// text contains no tool request at all.
+function parseTextToolCall(content) {
+  const text = String(content || "");
+  if (!text) return null;
+  const fenced = text.match(TOOL_MARKER_RE);
+  if (fenced) {
+    const parsed = tryParseLoose(fenced[1]);
+    if (parsed?.name) return parsed;
+    return { invalid: fenced[1].slice(0, 300) };
+  }
+  const calls = text.match(TOOL_CALLS_RE);
+  if (calls) {
+    let parsed = tryParseLoose(calls[1]);
+    if (!parsed && Array.isArray(safeJson(calls[1]))) parsed = normalizeToolJson(safeJson(calls[1])[0]);
+    if (parsed?.name) return parsed;
+    return { invalid: calls[1].slice(0, 300) };
+  }
+  const harmony = text.match(HARMONY_RE);
+  if (harmony) {
+    const parsed = tryParseLoose(harmony[2]);
+    if (parsed) return { ...parsed, name: parsed.name || harmony[1] };
+    return { name: harmony[1], args: {} };
+  }
+  return null;
+}
+
+function tryParseLoose(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  let parsed = safeJson(s);
+  if (!parsed || typeof parsed !== "object") {
+    const obj = s.match(/\{[\s\S]*\}/);
+    parsed = obj ? safeJson(obj[0]) : null;
+  }
+  return normalizeToolJson(parsed);
+}
+
+function normalizeToolJson(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const name = String(parsed.name || parsed.tool || "").trim();
+  if (!name) return null;
+  return { name, args: parsed.arguments || parsed.args || parsed.parameters || {} };
+}
+
+function safeJson(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+// Streams tool-request markup to the chat bubble otherwise; hold back a tail
+// that might be the start of a marker so split chunks still match.
+const TOOL_TEXT_MARKERS = ["```tool", "[TOOL_CALLS]", "to=functions."];
+function makeToolDeltaFilter(onDelta) {
+  let buf = "";
+  let suppressed = false;
+  const hold = Math.max(...TOOL_TEXT_MARKERS.map((m) => m.length)) - 1;
+  return {
+    push(chunk) {
+      if (suppressed || typeof chunk !== "string" || !chunk) return;
+      buf += chunk;
+      const lower = buf.toLowerCase();
+      let cut = -1;
+      for (const marker of TOOL_TEXT_MARKERS) {
+        const idx = lower.indexOf(marker.toLowerCase());
+        if (idx >= 0 && (cut < 0 || idx < cut)) cut = idx;
+      }
+      if (cut >= 0) {
+        suppressed = true;
+        if (cut > 0) onDelta(buf.slice(0, cut));
+        buf = "";
+        return;
+      }
+      if (buf.length > hold) {
+        onDelta(buf.slice(0, buf.length - hold));
+        buf = buf.slice(buf.length - hold);
+      }
+    },
+    flush() {
+      if (suppressed || !buf) return;
+      onDelta(buf);
+      buf = "";
+    },
+  };
+}
+
+// Free gateways sometimes split one tool call across two slots: a known name
+// with empty args next to a nameless call carrying the args. Reunite them.
+function mergeSplitToolCalls(calls, knownNames) {
+  const list = [...calls];
+  const namedIdx = list.findIndex((c) => knownNames.has(String(c.name || "").trim()));
+  const unnamedIdx = list.findIndex((c) => !String(c.name || "").trim());
+  if (
+    namedIdx >= 0 &&
+    unnamedIdx >= 0 &&
+    namedIdx !== unnamedIdx &&
+    !Object.keys(list[namedIdx].args || {}).length &&
+    Object.keys(list[unnamedIdx].args || {}).length
+  ) {
+    list[namedIdx] = { ...list[namedIdx], args: list[unnamedIdx].args };
+    list.splice(unnamedIdx, 1);
+  }
+  return list;
+}
+
 /**
  * Run one agent turn.
  * events: { onStatus(text), onDelta(text), onToolCall(call), onToolResult(call, result), onApprovalRequest(call) -> Promise<bool> }
@@ -41,22 +180,36 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
     ...TOOL_DEFS.filter((t) => enabled.has(t.function.name)),
     ...(extraToolDefs || []),
   ];
+  const knownNames = new Set(tools.map((t) => t.function.name));
 
   let finalText = "";
   let usage = null;
+  let malformed = 0;
+  let apiSeen = 0;
+  let textInvalid = 0;
+  let emptyReplies = 0;
   for (let step = 0; step < MAX_STEPS; step++) {
     events.onStatus("Working");
     let completion;
     try {
-      completion = await withFallback(settings, (config) =>
-        streamChat({
+      completion = await providers.withFallback(settings, async (config) => {
+        // text-mode: provider can't take API tools — describe them in prompt instead
+        const textMode = config.supportsTools === false;
+        const attemptMessages = textMode
+          ? [...messages, { role: "system", content: textToolProtocol(tools) }]
+          : messages;
+        const filter = textMode ? makeToolDeltaFilter(events.onDelta) : null;
+        const result = await providers.streamChat({
           config,
-          messages,
+          messages: attemptMessages,
           tools,
           signal,
-          onDelta: events.onDelta,
-        })
-      );
+          onDelta: filter ? (c) => filter.push(c) : events.onDelta,
+        });
+        filter?.flush();
+        result.textMode = textMode;
+        return result;
+      });
       if (completion.usage) usage = completion.usage;
     } catch (err) {
       if (err?.name === "AbortError") throw err;
@@ -64,8 +217,36 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
     }
 
     if (completion.content) finalText = completion.content;
+    completion.toolCalls = mergeSplitToolCalls(completion.toolCalls, knownNames);
 
-    if (!completion.toolCalls.length) {
+    // Free gateways occasionally answer 200 with nothing at all; one silent
+    // retry beats failing the turn.
+    if (!completion.content && !completion.toolCalls.length) {
+      emptyReplies++;
+      if (emptyReplies <= 2) continue;
+      return { text: finalText || "My model provider returned an empty response — try again in a moment.", stopped: true, usage };
+    }
+    emptyReplies = 0;
+
+    // Build the pending call list. API tool calls first; in text-mode, a tool
+    // request may instead arrive as markup inside the streamed content.
+    const pending = completion.toolCalls.map((call) => ({ call, mode: "api" }));
+    if (!completion.toolCalls.length && completion.textMode) {
+      const parsed = parseTextToolCall(completion.content);
+      if (parsed?.invalid) {
+        pending.push({ invalid: parsed.invalid });
+      } else if (parsed?.name) {
+        if (!knownNames.has(parsed.name)) {
+          pending.push({ invalid: `unknown tool "${parsed.name}"` });
+        } else {
+          pending.push({
+            call: { id: `txt_${step}`, name: parsed.name, args: parsed.args || {} },
+            mode: "text",
+          });
+        }
+      }
+    }
+    if (!pending.length) {
       return { text: finalText || "(empty response)", usage };
     }
 
@@ -73,50 +254,57 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
     // markup in names (web_search<|channel|>commentary), JSON pasted into the
     // name, or split fragments. Repair what we can; reject the rest with a
     // corrective result so the model retries with a valid call.
-    const knownNames = new Set(tools.map((t) => t.function.name));
-    const repairCalls = completion.toolCalls
-      .map((call) => {
-        let name = String(call.name || "").trim();
-        let args = call.args || {};
+    const repairCalls = pending.map((p) => {
+      if (!p.call) return p;
+      let name = String(p.call.name || "").trim();
+      let args = p.call.args || {};
+      if (!knownNames.has(name)) {
+        // JSON pasted into the name field, possibly {name, arguments}
+        if (name.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(name);
+            if (parsed && typeof parsed === "object") {
+              name = String(parsed.name || parsed.tool || "").trim();
+              if (parsed.arguments && (!args || Object.keys(args).length === 0)) args = parsed.arguments;
+            }
+          } catch {}
+        }
+        // channel markup or wrapper text around a real name
         if (!knownNames.has(name)) {
-          // JSON pasted into the name field, possibly {name, arguments}
-          if (name.startsWith("{")) {
-            try {
-              const parsed = JSON.parse(name);
-              if (parsed && typeof parsed === "object") {
-                name = String(parsed.name || parsed.tool || "").trim();
-                if (parsed.arguments && (!args || Object.keys(args).length === 0)) args = parsed.arguments;
-              }
-            } catch {}
-          }
-          // channel markup or wrapper text around a real name
-          if (!knownNames.has(name)) {
-            for (const known of knownNames) {
-              if (name.includes(known)) {
-                name = known;
-                break;
-              }
+          for (const known of knownNames) {
+            if (name.includes(known)) {
+              name = known;
+              break;
             }
           }
         }
-        return { ...call, name, args };
-      })
-      .filter((call) => call.name);
+      }
+      return { ...p, call: { ...p.call, name, args } };
+    });
 
-    messages.push({ role: "assistant", content: completion.content || "", tool_calls: completion.toolCalls.map((t) => ({ id: t.id, type: "function", function: { name: String(t.name || "unknown").slice(0, 120), arguments: JSON.stringify(t.args) } })) });
+    if (repairCalls.some((p) => p.mode === "api")) {
+      messages.push({ role: "assistant", content: completion.content || "", tool_calls: completion.toolCalls.map((t) => ({ id: t.id, type: "function", function: { name: String(t.name || "unknown").slice(0, 120), arguments: JSON.stringify(t.args) } })) });
+    } else {
+      // text-mode feedback must work on providers that reject OpenAI tool roles
+      messages.push({ role: "assistant", content: completion.content || "" });
+    }
 
-    let malformed = 0;
-    for (const call of repairCalls) {
-      events.onToolCall(call);
-      events.onStatus(STATUS_BY_TOOL[call.name] || "Working");
+    for (const p of repairCalls) {
       let result;
-      if (!knownNames.has(call.name)) {
-        malformed++;
+      if (p.invalid) {
+        if (p.mode === "api") malformed++;
+        else textInvalid++;
         result = {
           ok: false,
-          error: `Unknown tool "${call.name}". Available tools: ${[...knownNames].join(", ")}. Call one of them with proper JSON arguments.`,
+          error: p.mode === "api"
+            ? `Unknown tool "${p.call?.name || ""}". Available tools: ${[...knownNames].join(", ")}. Call one of them with proper JSON arguments.`
+            : `I could not parse that tool request (${p.invalid}). Reply again with exactly one fenced block:\n` +
+              '```tool\n{"name": "web_search", "arguments": {"query": "..."}}\n```',
         };
       } else {
+        const call = p.call;
+        events.onToolCall(call);
+        events.onStatus(STATUS_BY_TOOL[call.name] || "Working");
         try {
           result = await executeTool(call, {
             signal,
@@ -128,12 +316,20 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
           if (err?.name === "AbortError") throw err;
           result = { ok: false, error: String(err?.message || err) };
         }
+        events.onToolResult(call, result);
       }
-      events.onToolResult(call, result);
-      messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result).slice(0, 12000) });
+      if (p.mode === "api") {
+        apiSeen++;
+        messages.push({ role: "tool", tool_call_id: p.call?.id, content: JSON.stringify(result).slice(0, 12000) });
+      } else {
+        messages.push({
+          role: "user",
+          content: `[tool result for ${p.call ? p.call.name : "tool request"}]\n${JSON.stringify(result).slice(0, 12000)}`,
+        });
+      }
     }
     // a model stuck hallucinating malformed calls won't recover — stop early
-    if (malformed >= 3 && malformed === repairCalls.length) {
+    if ((malformed >= 3 && malformed === apiSeen) || textInvalid >= 3) {
       return {
         text:
           finalText ||
@@ -147,4 +343,4 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
   return { text: finalText || "Stopped: too many tool steps.", stopped: true, usage };
 }
 
-module.exports = { runAgentTurn };
+module.exports = { runAgentTurn, parseTextToolCall, textToolProtocol, makeToolDeltaFilter };

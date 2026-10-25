@@ -17,11 +17,12 @@ const PROVIDERS = [
     url: "https://text.pollinations.ai/openai",
     keyUrl: "https://pollinations.ai",
     models: [
-      { id: "openai", name: "GPT-OSS 20B (keyless)", note: "no key needed" },
-      { id: "mistral", name: "Mistral (keyless)", note: "may hit free limit" },
+      { id: "openai-fast", name: "GPT-OSS 20B (keyless)", note: "no key needed" },
     ],
     keyless: true,
-    supportsTools: false,
+    // openai-fast takes OpenAI tools over the streaming endpoint; a saved
+    // retired model id (e.g. "mistral") self-heals to this via the 404 retry
+    supportsTools: true,
   },
   {
     id: "groq",
@@ -158,6 +159,25 @@ function orderedConfigs(settings) {
   return out;
 }
 
+// Abortable sleep: resolves after ms, rejects with AbortError if signal fires.
+function sleepWithSignal(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener?.("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    };
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
+}
+
 async function streamChat({ config, messages, tools, signal, onDelta, onDone }) {
   const body = {
     model: config.model,
@@ -168,35 +188,36 @@ async function streamChat({ config, messages, tools, signal, onDelta, onDone }) 
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  let res = await fetch(config.baseUrl, {
-    method: "POST",
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-      "HTTP-Referer": "https://github.com/emberling",
-      "X-Title": "Emberling",
-    },
-    body: JSON.stringify(body),
-  });
+  const doFetch = () =>
+    fetch(config.baseUrl, {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+        "HTTP-Referer": "https://github.com/emberling",
+        "X-Title": "Emberling",
+      },
+      body: JSON.stringify(body),
+    });
+  let res = await doFetch();
   // self-heal: free providers rotate their model rosters — when a saved model
-  // id disappears (404/400/402), retry once with the provider's default model
-  if ((res.status === 404 || res.status === 400 || res.status === 402) && config.model !== config.fallbackModel) {
+  // id disappears (404/400), retry once with the provider's default model
+  if ((res.status === 404 || res.status === 400) && config.model !== config.fallbackModel) {
     const fallbackModel = config.fallbackModel || "";
     if (fallbackModel) {
       body.model = fallbackModel;
-      res = await fetch(config.baseUrl, {
-        method: "POST",
-        signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
-          "HTTP-Referer": "https://github.com/emberling",
-          "X-Title": "Emberling",
-        },
-        body: JSON.stringify(body),
-      });
+      res = await doFetch();
     }
+  }
+  // keyless free tiers throttle to ~1 reply per 30s — wait out the stated
+  // backoff and retry once so multi-step tool turns can complete
+  if (res.status === 402) {
+    const text = await res.text().catch(() => "");
+    const wait = Number((text.match(/Retry after (\d+)\s*s/i) || [])[1] || 0);
+    if (!wait || wait > 90) throw new Error(`${config.providerId} HTTP 402: ${text.slice(0, 400)}`);
+    await sleepWithSignal((wait + 2) * 1000, signal);
+    res = await doFetch();
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
