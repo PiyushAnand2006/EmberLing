@@ -22,8 +22,8 @@
 | *Free providers with Test button, approval modes, tool toggles* | *Add real stdio MCP servers; their tools join the agent* |
 | ![Settings — Usage](docs/screenshots/05-settings-usage.png) | ![Appearance](docs/screenshots/06-appearance.png) |
 | *Local token tracking + Emberling Plus* | *10 bubble colors with live preview* |
-| ![Bots](docs/screenshots/07-bots.png) | ![Bot editor — templates + publish](docs/screenshots/08-bot-editor-publish.png) |
-| *Personal & team bots, Dotling avatars* | *Knowledge files, template export/import, one-click publish* |
+| ![Bots](docs/screenshots/07-bots.png) | ![New bot creation window](docs/screenshots/08-bot-editor-publish.png) |
+| *Personal & team bots, Dotling avatars* | *Bot creation — Dotling faces, instructions, knowledge, templates & publish* |
 | ![Automations](docs/screenshots/09-automations.png) | ![Integrations](docs/screenshots/10-integrations.png) |
 | *Scheduled prompts into their own chat* | *The original's connection surface* |
 
