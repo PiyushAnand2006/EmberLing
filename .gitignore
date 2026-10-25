@@ -9,3 +9,4 @@ release/
 .diagram-design/
 --full-page
 docs/diagram-*.html
+public/
