@@ -3,3 +3,9 @@ renderer-build/
 release/
 .rea-extract/
 *.log
+
+# local tooling artifacts
+.mimosa/
+.diagram-design/
+--full-page
+docs/diagram-*.html
