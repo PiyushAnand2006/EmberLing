@@ -97,6 +97,29 @@ Grab a build from [**Releases**](https://github.com/PiyushAnand2006/EmberLing/re
 
 > Windows SmartScreen may warn on unsigned builds — choose "More info → Run anyway", or build from source below.
 
+### Update the app
+
+**Installed (Setup) users:**
+
+1. Quit Emberling — right-click the tray icon (orange dot) → **Quit Emberling** (closing the window keeps it running in the tray).
+2. Download the latest `Emberling-Setup-x.y.z.exe` from [Releases](https://github.com/PiyushAnand2006/EmberLing/releases).
+3. Run it — the NSIS installer detects the existing install and upgrades **in place** (same folder, same shortcuts). No uninstall needed first.
+4. Launch from the desktop/start-menu shortcut. Your data (chats, bots, memories, keys) lives in `%APPDATA%\emberling` and is never touched by an update.
+
+Check what changed on the [release notes](https://github.com/PiyushAnand2006/EmberLing/releases) page. If you're unsure which build you have: Settings → About shows the version.
+
+**Portable users:** just download the new `Emberling-Portable-x.y.z.exe` and run it — replace the old file whenever you like; the two can coexist.
+
+**From-source users:**
+
+```powershell
+git pull
+npm install          # picks up any new dependencies
+npm start            # rebuild + launch
+```
+
+**Rollback:** every release keeps its artifacts — grab any older `Emberling-Setup` from the releases list and install over the newer one to downgrade.
+
 ### Option B — From source (development)
 
 ```powershell
