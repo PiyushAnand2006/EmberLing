@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Orby, the Emberling mascot">
+  <!--
+    ORBY — face of Emberling (idle). The agent itself: a bright dot with an
+    orbit ring, the logo mark brought to life. Satellite bead is brand orange.
+  -->
+  <defs>
+    <radialGradient id="orbyBody" cx="0.33" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#ff8a4d"/>
+      <stop offset="0.55" stop-color="#f54e00"/>
+      <stop offset="1" stop-color="#c93e00"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="48" cy="88" rx="20" ry="4.5" fill="#000" opacity="0.28"/>
+  <!-- orbit ring: full ellipse, body covers back arc, front arc redrawn on top;
+       ring center at body middle so the front arc clears the face -->
+  <ellipse cx="48" cy="50" rx="41" ry="13.5" transform="rotate(-14 48 50)" fill="none" stroke="#f0f0f0" stroke-opacity="0.92" stroke-width="4.5"/>
+  <circle cx="48" cy="52" r="30" fill="url(#orbyBody)"/>
+  <path d="M87.77 40.08 A41 13.5 -14 0 1 8.23 59.92" fill="none" stroke="#f0f0f0" stroke-opacity="0.92" stroke-width="4.5"/>
+  <circle cx="78.71" cy="34.36" r="3.6" fill="#ff6a24"/>
+  <!-- face -->
+  <ellipse cx="38.5" cy="46" rx="2.8" ry="3.8" fill="#141414"/>
+  <ellipse cx="57.5" cy="46" rx="2.8" ry="3.8" fill="#141414"/>
+  <circle cx="37.6" cy="44.6" r="1" fill="#fff" opacity="0.85"/>
+  <circle cx="56.6" cy="44.6" r="1" fill="#fff" opacity="0.85"/>
+  <ellipse cx="34" cy="55" rx="4.2" ry="2.6" fill="#e0566f" opacity="0.35"/>
+  <ellipse cx="62" cy="55" rx="4.2" ry="2.6" fill="#e0566f" opacity="0.35"/>
+  <path d="M44 58 Q48 61.5 52 58" fill="none" stroke="#141414" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

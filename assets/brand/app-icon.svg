@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Emberling app icon">
+  <!-- App icon: dark squircle tile, mark centered -->
+  <defs>
+    <linearGradient id="emTile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d1d1d"/>
+      <stop offset="1" stop-color="#101010"/>
+    </linearGradient>
+    <radialGradient id="emDot" cx="0.35" cy="0.28" r="0.9">
+      <stop offset="0" stop-color="#ff8a4d"/>
+      <stop offset="0.55" stop-color="#f54e00"/>
+      <stop offset="1" stop-color="#cf4100"/>
+    </radialGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#emTile)"/>
+  <rect x="16.75" y="16.75" width="478.5" height="478.5" rx="117.25" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1.5"/>
+  <g transform="translate(256 256) scale(5.4) translate(-32 -32.75)">
+    <ellipse cx="32" cy="32.5" rx="28.5" ry="10.5" transform="rotate(-16 32 32.5)" fill="none" stroke="#f0f0f0" stroke-opacity="0.92" stroke-width="4.5"/>
+    <circle cx="32" cy="35" r="13.5" fill="url(#emDot)"/>
+    <path d="M59.4 24.65 A28.5 10.5 -16 0 1 4.6 40.35" fill="none" stroke="#f0f0f0" stroke-opacity="0.92" stroke-width="4.5"/>
+    <circle cx="52.8" cy="20.3" r="3.4" fill="#ff6a24"/>
+  </g>
+</svg>

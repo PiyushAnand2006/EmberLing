@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 783 100" width="783" height="100" role="img" aria-label="Emberling lockup, horizontal, for light surfaces">
+  <g transform="translate(-0.4 -47.1) scale(2.97)">
+    <ellipse cx="32" cy="32.5" rx="28.5" ry="10.5" transform="rotate(-16 32 32.5)" fill="none" stroke="#141414" stroke-width="4.5"/>
+    <circle cx="32" cy="35" r="13.5" fill="#141414"/>
+    <path d="M59.4 24.65 A28.5 10.5 -16 0 1 4.6 40.35" fill="none" stroke="#141414" stroke-width="4.5"/>
+    <circle cx="52.8" cy="20.3" r="3.4" fill="#141414"/>
+  </g>
+  <g fill="none" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" transform="translate(223 0)">
+    <g stroke="#141414">
+      <path d="M45 6.5 H13 V93.5 H45 M13 50 H38"/>
+      <path transform="translate(59.5 0)" d="M13 93.5 V6.5 L36 55 L59 6.5 V93.5"/>
+      <path transform="translate(133 0)" d="M13 6.5 V93.5 M13 6.5 H32 A20.25 20.25 0 0 1 32 47 H13 M13 47 H34 A23.25 23.25 0 0 1 34 93.5 H13"/>
+      <path transform="translate(205.5 0)" d="M45 6.5 H13 V93.5 H45 M13 50 H38"/>
+      <path transform="translate(265 0)" d="M13 6.5 V93.5 M13 6.5 H30 A21.75 21.75 0 0 1 30 50 H13 M30 50 L52 93.5"/>
+    </g>
+    <g stroke="#f54e00">
+      <path transform="translate(331.5 0)" d="M13 6.5 V93.5 H48"/>
+      <path transform="translate(394 0)" d="M13 6.5 V93.5"/>
+      <path transform="translate(421.5 0)" d="M13 93.5 V6.5 L59 93.5 V6.5"/>
+      <path transform="translate(495 0)" d="M52 31 A27 27 0 1 0 52 69 L52 52 H40"/>
+    </g>
+  </g>
+</svg>

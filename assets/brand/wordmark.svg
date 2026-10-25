@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 100" width="560" height="100" role="img" aria-label="EMBERLING wordmark">
+  <!--
+    EMBERLING wordmark — custom geometric monoline letterforms (no font needed).
+    Cap height 100, stroke 13, round caps/joins; stroke weight matches the
+    logo ring. "EMBER" carries the ink, "LING" carries the brand orange.
+  -->
+  <g fill="none" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#f0f0f0">
+      <!-- E -->
+      <path transform="translate(0 0)" d="M45 6.5 H13 V93.5 H45 M13 50 H38"/>
+      <!-- M -->
+      <path transform="translate(59.5 0)" d="M13 93.5 V6.5 L36 55 L59 6.5 V93.5"/>
+      <!-- B -->
+      <path transform="translate(133 0)" d="M13 6.5 V93.5 M13 6.5 H32 A20.25 20.25 0 0 1 32 47 H13 M13 47 H34 A23.25 23.25 0 0 1 34 93.5 H13"/>
+      <!-- E -->
+      <path transform="translate(205.5 0)" d="M45 6.5 H13 V93.5 H45 M13 50 H38"/>
+      <!-- R -->
+      <path transform="translate(265 0)" d="M13 6.5 V93.5 M13 6.5 H30 A21.75 21.75 0 0 1 30 50 H13 M30 50 L52 93.5"/>
+    </g>
+    <g stroke="#f54e00">
+      <!-- L -->
+      <path transform="translate(331.5 0)" d="M13 6.5 V93.5 H48"/>
+      <!-- I -->
+      <path transform="translate(394 0)" d="M13 6.5 V93.5"/>
+      <!-- N -->
+      <path transform="translate(421.5 0)" d="M13 93.5 V6.5 L59 93.5 V6.5"/>
+      <!-- G -->
+      <path transform="translate(495 0)" d="M52 31 A27 27 0 1 0 52 69 L52 52 H40"/>
+    </g>
+  </g>
+</svg>

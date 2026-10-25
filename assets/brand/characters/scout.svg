@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Scout, the web-search bot">
+  <!--
+    SCOUT — web & search bot (Bots: research). Antenna with a brand-orange
+    satellite bead + a magnifier badge. Body: accent blue.
+  -->
+  <defs>
+    <radialGradient id="scoutBody" cx="0.33" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#8cc0f2"/>
+      <stop offset="0.55" stop-color="#599ce7"/>
+      <stop offset="1" stop-color="#3d7cc0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="48" cy="88" rx="20" ry="4.5" fill="#000" opacity="0.28"/>
+  <circle cx="48" cy="52" r="30" fill="url(#scoutBody)"/>
+  <!-- antenna + satellite -->
+  <path d="M48 22 V12" fill="none" stroke="#141414" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="48" cy="9.5" r="4" fill="#ff6a24"/>
+  <path d="M54.5 4.5 A8.5 8.5 0 0 1 57.5 11" fill="none" stroke="#599ce7" stroke-width="1.8" stroke-linecap="round" opacity="0.8"/>
+  <!-- magnifier badge -->
+  <circle cx="70" cy="68" r="7" fill="#141414" fill-opacity="0.12" stroke="#141414" stroke-width="3"/>
+  <path d="M75 73 L81.5 79.5" stroke="#141414" stroke-width="3" stroke-linecap="round"/>
+  <!-- face -->
+  <ellipse cx="38.5" cy="46" rx="2.8" ry="3.8" fill="#141414"/>
+  <ellipse cx="57.5" cy="46" rx="2.8" ry="3.8" fill="#141414"/>
+  <circle cx="37.6" cy="44.6" r="1" fill="#fff" opacity="0.85"/>
+  <circle cx="56.6" cy="44.6" r="1" fill="#fff" opacity="0.85"/>
+  <ellipse cx="34" cy="55" rx="4.2" ry="2.6" fill="#e0566f" opacity="0.35"/>
+  <ellipse cx="62" cy="55" rx="4.2" ry="2.6" fill="#e0566f" opacity="0.35"/>
+  <path d="M44 58 Q48 61.5 52 58" fill="none" stroke="#141414" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
