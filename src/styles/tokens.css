@@ -1,0 +1,95 @@
+/* Design tokens extracted via REA from the original 0.75.8 client (index-CFSAhbDS.css) */
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --cursor-chrome: #141414;
+  --cursor-pane: #181818;
+  --cursor-sidebar: #181818;
+  --cursor-elevated: var(--cursor-pane);
+  --cursor-base: #f0f0f0;
+
+  /* text */
+  --cursor-text-primary: var(--cursor-base);
+  --cursor-text-secondary: #fcfcfc99;
+  --cursor-text-tertiary: #fcfcfc70;
+  --cursor-text-quaternary: #fcfcfc4d;
+
+  /* brand + semantic */
+  --cursor-brand: #f54e00;
+  --cursor-accent: #599ce7;
+  --cursor-blue: #7bafe9;
+  --cursor-green: #3fa266;
+  --cursor-orange: #d08770;
+  --cursor-cyan: #81a1c1;
+  --cursor-yellow: #f1b467;
+  --cursor-magenta: #b48ead;
+  --cursor-purple: #9386f2;
+  --cursor-danger: #e34671;
+  --cursor-warn: #f1b467;
+
+  /* derived fills (color-mix equivalents precomputed on #141414/#181818) */
+  --cursor-bg-primary: rgba(240, 240, 240, 0.2);
+  --cursor-bg-secondary: rgba(240, 240, 240, 0.12);
+  --cursor-bg-tertiary: rgba(240, 240, 240, 0.08);
+  --cursor-bg-quaternary: rgba(240, 240, 240, 0.06);
+  --cursor-bg-quinary: rgba(240, 240, 240, 0.04);
+  --cursor-bg-input-field: rgba(240, 240, 240, 0.03);
+  --cursor-bg-active: rgba(240, 240, 240, 0.16);
+  --cursor-bg-focused: rgba(240, 240, 240, 0.22);
+  --cursor-bg-hover: rgba(240, 240, 240, 0.06);
+
+  --cursor-bg-blue-secondary: rgba(123, 175, 233, 0.12);
+  --cursor-bg-danger-secondary: rgba(227, 70, 113, 0.2);
+
+  /* strokes */
+  --cursor-stroke-primary: rgba(255, 255, 255, 0.14);
+  --cursor-stroke-secondary: rgba(255, 255, 255, 0.1);
+  --cursor-stroke-tertiary: rgba(255, 255, 255, 0.07);
+  --cursor-stroke-quaternary: rgba(255, 255, 255, 0.05);
+
+  /* radii + spacing */
+  --cursor-radius-md: 6px;
+  --cursor-radius-lg: 8px;
+  --cursor-radius-xl: 12px;
+  --cursor-radius-2xl: 18px;
+  --cursor-spacing-1: 4px;
+  --cursor-spacing-2: 8px;
+  --cursor-spacing-3: 12px;
+  --cursor-spacing-4: 16px;
+  --cursor-spacing-5: 20px;
+  --cursor-spacing-6: 24px;
+  --cursor-spacing-8: 32px;
+
+  /* type */
+  --cursor-font-size-sm: 12px;
+  --cursor-font-size-md: 13px;
+  --cursor-font-size-lg: 14px;
+  --cursor-font-family-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cursor-font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* sand (iMessage-style bubbles) */
+  --sand-fill-bubble-user: #1c1c1c;
+  --sand-fill-bubble-user-blue: #126fd4;
+  --sand-fill-bubble-user-green: #0d9655;
+  --sand-fill-bubble-user-purple: #7442d1;
+  --sand-fill-bubble-user-orange: #d2550a;
+  --sand-fill-bubble-user-red: #c82532;
+  --sand-fill-bubble-user-cyan: #0d9381;
+  --sand-fill-bubble-user-magenta: #c82779;
+  --sand-fill-bubble-user-brown: #86592e;
+  --sand-fill-bubble-user-yellow: #c2730b;
+  --sand-fill-bubble-agent: #1c1c1c0f;
+  --sand-text-on-primary: #fff;
+
+  /* conversation */
+  --conversation-bubble-max-width: min(640px, 100%);
+  --conversation-text-font-size: 14px;
+  --conversation-line-height: 22px;
+
+  --sidebar-width: 220px;
+  --sidebar-width-collapsed: 48px;
+
+  --shadow-pop: 0 10px 28px -6px #00000047, 0 2px 6px -1px #0000001f;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
