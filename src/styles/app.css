@@ -764,7 +764,21 @@ input, textarea, select { font: inherit; color: inherit; }
   min-width: 220px;
 }
 .text-input:focus { border-color: rgba(255,255,255,0.22); }
-select.text-input { min-width: 160px; }
+select.text-input {
+  min-width: 160px;
+  /* Chromium renders the native dropdown popup in light scheme unless the
+     select element itself carries color-scheme — keep popups dark */
+  color-scheme: dark;
+}
+select.text-input option {
+  background: var(--cursor-pane);
+  color: var(--cursor-text-primary);
+}
+select.text-input option:checked,
+select.text-input option:hover {
+  background: var(--cursor-bg-blue-secondary);
+  color: var(--cursor-text-primary);
+}
 
 .toggle {
   position: relative;
