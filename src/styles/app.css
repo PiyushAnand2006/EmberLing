@@ -779,6 +779,16 @@ select.text-input option:hover {
   background: var(--cursor-bg-blue-secondary);
   color: var(--cursor-text-primary);
 }
+select.text-input optgroup {
+  background: var(--cursor-pane);
+  color: var(--cursor-text-tertiary);
+  font-weight: 600;
+  font-style: normal;
+}
+select.text-input optgroup option {
+  background: var(--cursor-pane);
+  color: var(--cursor-text-primary);
+}
 
 .toggle {
   position: relative;
@@ -903,6 +913,9 @@ select.text-input option:hover {
 .menu {
   position: fixed;
   min-width: 200px;
+  max-width: 340px;
+  max-height: 62vh;
+  overflow-y: auto;
   background: #202020;
   border: 1px solid var(--cursor-stroke-tertiary);
   border-radius: var(--cursor-radius-lg);

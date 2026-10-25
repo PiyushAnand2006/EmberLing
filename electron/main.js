@@ -17,6 +17,13 @@ require("electron").protocol.registerSchemesAsPrivileged([
   { scheme: "emberling-media", privileges: { stream: true, bypassCSP: false } },
 ]);
 
+// optional isolated profile (also gives the single-instance lock its own
+// scope): emberling.exe --user-data-dir=C:\path
+const uddArg = process.argv.find((a) => a.startsWith("--user-data-dir="));
+if (uddArg) {
+  app.setPath("userData", uddArg.slice("--user-data-dir=".length));
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {

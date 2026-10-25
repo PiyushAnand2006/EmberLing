@@ -322,15 +322,27 @@ export function Composer({
                 <IconChevronDown size={11} />
               </button>
             )}
-            items={activeProvider?.models.map((m) => ({
-              label: `${m.name} — ${m.note}`,
-              icon: creds?.model === m.id ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
-              onClick: () =>
-                setSettings((s) => ({
-                  ...s,
-                  providers: { ...s.providers, [s.activeProvider]: { ...creds, apiKey: creds?.apiKey || "", model: m.id } },
-                })),
-            })) || [{ label: "Add a provider in Settings → General", onClick: () => {} }]}
+            items={
+              activeProvider
+                ? [
+                    ...activeProvider.models.map((m) => ({
+                      label: `${m.name} — ${m.note}`,
+                      modelId: m.id,
+                    })),
+                    ...((creds?.models as string[]) || [])
+                      .filter((id: string) => !activeProvider.models.some((m) => m.id === id))
+                      .map((id: string) => ({ label: id, modelId: id })),
+                  ].map((m) => ({
+                    label: m.label,
+                    icon: creds?.model === m.modelId ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
+                    onClick: () =>
+                      setSettings((s) => ({
+                        ...s,
+                        providers: { ...s.providers, [s.activeProvider]: { ...(creds || {}), apiKey: creds?.apiKey || "", model: m.modelId } },
+                      })),
+                  }))
+                : [{ label: "Add a provider in Settings → General", onClick: () => {} }]
+            }
           />
 
           <PopoverMenu

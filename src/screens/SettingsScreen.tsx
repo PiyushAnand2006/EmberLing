@@ -33,7 +33,8 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
   const isActive = settings.activeProvider === provider.id;
   const configured = !!creds.apiKey || !!(provider as any).keyless;
 
-  // auto-load the provider's live model list when a key is available
+  // auto-load the provider's live model list when a key is available;
+  // discovered ids persist into settings so the chat model menu sees them too
   const loadModels = async (keyOverride?: string) => {
     if ((provider as any).keyless) return;
     const key = (keyOverride ?? apiKey).trim();
@@ -42,9 +43,13 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
     const res = await window.emberling.providers.fetchModels({ providerId: provider.id, apiKey: key, baseUrl: baseUrl.trim() });
     if (res.ok && res.models?.length) {
       setLiveModels(res.models);
-      setModelsNote(`${res.models.length} models loaded from provider`);
+      setModelsNote(`${res.models.length} models loaded — shown in Settings and the chat model menu`);
+      setSettings((s) => ({
+        ...s,
+        providers: { ...s.providers, [provider.id]: { ...(s.providers[provider.id] || {}), apiKey: s.providers[provider.id]?.apiKey ?? apiKey.trim(), models: res.models } },
+      }));
     } else {
-      setModelsNote("");
+      setModelsNote(res.ok ? "" : `models not loaded: ${res.error || "unknown error"}`);
     }
   };
 
@@ -63,8 +68,8 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
   };
 
   const save = async () => {
-    persist(model);
-    toast(`${provider.name} key saved`);
+    persist(model || provider.models[0]?.id || "");
+    toast(`${provider.name} saved`);
     // refresh the live model list right after the key lands
     await loadModels(apiKey.trim());
   };
@@ -78,9 +83,12 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
     if (res.ok) await loadModels(apiKey.trim());
   };
 
-  // merge static catalog + provider-discovered models
-  const staticIds = provider.models.map((m) => m.id);
-  const discovered = liveModels.filter((id) => !staticIds.includes(id) && id !== model);
+  // merge static catalog + persisted + freshly discovered models
+  const staticIds = provider.models.map((m) => (m as any).id);
+  const persisted: string[] = creds.models || [];
+  const discovered = [...new Set([...persisted, ...liveModels])].filter((id) => !staticIds.includes(id) && id !== model);
+  // a custom-entered model id that isn't in any list still needs to DISPLAY
+  const currentMissing = !!model && !staticIds.includes(model) && !discovered.includes(model);
 
   return (
     <div className="settings-group" style={{ borderColor: isActive ? "rgba(89,156,231,0.5)" : undefined }}>
@@ -106,14 +114,14 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
-          <select className="text-input" value={model} onChange={(e) => { setModel(e.target.value); persist(e.target.value); }}>
-            {(provider.models.length ? provider.models : [{ id: model || "custom-model", name: model || "custom-model", note: "" }]).map((m) => (
+          <select className="text-input" value={model} onChange={(e) => setModel(e.target.value)}>
+            {(provider.models.length ? provider.models : staticIds.length ? [] : [{ id: model || "custom-model", name: model || "custom-model", note: "" }]).map((m: any) => (
               <option key={m.id} value={m.id}>
                 {m.name}
               </option>
             ))}
             {discovered.length > 0 && (
-              <optgroup label="Discovered from provider">
+              <optgroup label={`Discovered from provider (${discovered.length})`}>
                 {discovered.map((id) => (
                   <option key={id} value={id}>
                     {id}
@@ -121,6 +129,7 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
                 ))}
               </optgroup>
             )}
+            {currentMissing && <option value={model}>{model} (current)</option>}
             <option value="">custom…</option>
           </select>
           {provider.id === "custom" && (

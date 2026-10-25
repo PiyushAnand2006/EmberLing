@@ -119,6 +119,8 @@ export interface ProviderCreds {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  /** Model ids discovered live from the provider's /models endpoint. */
+  models?: string[];
 }
 
 export interface Settings {

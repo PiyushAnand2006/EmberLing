@@ -123,7 +123,7 @@ async function fetchModels({ providerId, apiKey, baseUrl }) {
     .map((m) => (typeof m === "string" ? m : m.id || m.name || m.model))
     .filter((id) => typeof id === "string" && id.length)
     .sort((a, b) => a.localeCompare(b))
-    .slice(0, 200);
+    .slice(0, 400);
   return ids;
 }
 
