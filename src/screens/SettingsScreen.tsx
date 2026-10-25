@@ -423,7 +423,7 @@ export function SettingsScreen() {
             <div className="settings-group">
               <div className="settings-row">
                 <div className="row-label">Version</div>
-                <span style={{ color: "var(--cursor-text-tertiary)" }}>0.75.8 (clone)</span>
+                <span style={{ color: "var(--cursor-text-tertiary)" }}>0.75.9 (clone)</span>
               </div>
               <div className="settings-row">
                 <div className="row-label">Electron / Chrome / Node</div>

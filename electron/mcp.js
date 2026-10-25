@@ -62,7 +62,7 @@ function startServer(cfg) {
         await call("initialize", {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "emberling", version: "0.75.8" },
+          clientInfo: { name: "emberling", version: "0.75.9" },
         });
         proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
         const listed = await call("tools/list", {});
