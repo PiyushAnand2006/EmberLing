@@ -69,25 +69,78 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
       return { text: finalText || "(empty response)", usage };
     }
 
-    messages.push({ role: "assistant", content: completion.content || "", tool_calls: completion.toolCalls.map((t) => ({ id: t.id, type: "function", function: { name: t.name, arguments: JSON.stringify(t.args) } })) });
+    // Some models (esp. small keyless ones) hallucinate tool calls: channel
+    // markup in names (web_search<|channel|>commentary), JSON pasted into the
+    // name, or split fragments. Repair what we can; reject the rest with a
+    // corrective result so the model retries with a valid call.
+    const knownNames = new Set(tools.map((t) => t.function.name));
+    const repairCalls = completion.toolCalls
+      .map((call) => {
+        let name = String(call.name || "").trim();
+        let args = call.args || {};
+        if (!knownNames.has(name)) {
+          // JSON pasted into the name field, possibly {name, arguments}
+          if (name.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(name);
+              if (parsed && typeof parsed === "object") {
+                name = String(parsed.name || parsed.tool || "").trim();
+                if (parsed.arguments && (!args || Object.keys(args).length === 0)) args = parsed.arguments;
+              }
+            } catch {}
+          }
+          // channel markup or wrapper text around a real name
+          if (!knownNames.has(name)) {
+            for (const known of knownNames) {
+              if (name.includes(known)) {
+                name = known;
+                break;
+              }
+            }
+          }
+        }
+        return { ...call, name, args };
+      })
+      .filter((call) => call.name);
 
-    for (const call of completion.toolCalls) {
+    messages.push({ role: "assistant", content: completion.content || "", tool_calls: completion.toolCalls.map((t) => ({ id: t.id, type: "function", function: { name: String(t.name || "unknown").slice(0, 120), arguments: JSON.stringify(t.args) } })) });
+
+    let malformed = 0;
+    for (const call of repairCalls) {
       events.onToolCall(call);
       events.onStatus(STATUS_BY_TOOL[call.name] || "Working");
       let result;
-      try {
-        result = await executeTool(call, {
-          signal,
-          approvalMode,
-          approve: events.onApprovalRequest,
-          ...toolContext,
-        });
-      } catch (err) {
-        if (err?.name === "AbortError") throw err;
-        result = { ok: false, error: String(err?.message || err) };
+      if (!knownNames.has(call.name)) {
+        malformed++;
+        result = {
+          ok: false,
+          error: `Unknown tool "${call.name}". Available tools: ${[...knownNames].join(", ")}. Call one of them with proper JSON arguments.`,
+        };
+      } else {
+        try {
+          result = await executeTool(call, {
+            signal,
+            approvalMode,
+            approve: events.onApprovalRequest,
+            ...toolContext,
+          });
+        } catch (err) {
+          if (err?.name === "AbortError") throw err;
+          result = { ok: false, error: String(err?.message || err) };
+        }
       }
       events.onToolResult(call, result);
       messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result).slice(0, 12000) });
+    }
+    // a model stuck hallucinating malformed calls won't recover — stop early
+    if (malformed >= 3 && malformed === repairCalls.length) {
+      return {
+        text:
+          finalText ||
+          "I couldn't complete that: my model provider kept sending malformed tool calls. Try a stronger provider (add a free Groq or OpenRouter key in Settings → General) or rephrase the request.",
+        stopped: true,
+        usage,
+      };
     }
     // loop again — the model continues with tool results
   }
