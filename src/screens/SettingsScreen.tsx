@@ -28,16 +28,45 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
   const [baseUrl, setBaseUrl] = useState(creds.baseUrl || "");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [liveModels, setLiveModels] = useState<string[]>([]);
+  const [modelsNote, setModelsNote] = useState("");
   const isActive = settings.activeProvider === provider.id;
-  const configured = !!creds.apiKey;
+  const configured = !!creds.apiKey || !!(provider as any).keyless;
 
-  const save = () => {
+  // auto-load the provider's live model list when a key is available
+  const loadModels = async (keyOverride?: string) => {
+    if ((provider as any).keyless) return;
+    const key = (keyOverride ?? apiKey).trim();
+    if (!key && provider.id !== "custom") return;
+    setModelsNote("loading models…");
+    const res = await window.emberling.providers.fetchModels({ providerId: provider.id, apiKey: key, baseUrl: baseUrl.trim() });
+    if (res.ok && res.models?.length) {
+      setLiveModels(res.models);
+      setModelsNote(`${res.models.length} models loaded from provider`);
+    } else {
+      setModelsNote("");
+    }
+  };
+
+  // on mount, fetch for already-configured providers
+  React.useEffect(() => {
+    if (configured && creds.apiKey) loadModels(creds.apiKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider.id]);
+
+  const persist = (chosenModel: string) => {
     setSettings((s) => ({
       ...s,
-      providers: { ...s.providers, [provider.id]: { apiKey: apiKey.trim(), model: model || provider.models[0]?.id || "", baseUrl: baseUrl.trim() || undefined } },
+      providers: { ...s.providers, [provider.id]: { apiKey: apiKey.trim(), model: chosenModel || provider.models[0]?.id || "", baseUrl: baseUrl.trim() || undefined } },
       activeProvider: apiKey.trim() && !s.activeProvider ? provider.id : s.activeProvider,
     }));
+  };
+
+  const save = async () => {
+    persist(model);
     toast(`${provider.name} key saved`);
+    // refresh the live model list right after the key lands
+    await loadModels(apiKey.trim());
   };
 
   const test = async () => {
@@ -46,7 +75,12 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
     const res = await window.emberling.providers.test({ providerId: provider.id, apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), model });
     setTestResult({ ok: res.ok, msg: res.ok ? `Works: "${res.sample || ""}"` : res.error || "failed" });
     setTesting(false);
+    if (res.ok) await loadModels(apiKey.trim());
   };
+
+  // merge static catalog + provider-discovered models
+  const staticIds = provider.models.map((m) => m.id);
+  const discovered = liveModels.filter((id) => !staticIds.includes(id) && id !== model);
 
   return (
     <div className="settings-group" style={{ borderColor: isActive ? "rgba(89,156,231,0.5)" : undefined }}>
@@ -72,12 +106,21 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
-          <select className="text-input" value={model} onChange={(e) => setModel(e.target.value)}>
+          <select className="text-input" value={model} onChange={(e) => { setModel(e.target.value); persist(e.target.value); }}>
             {(provider.models.length ? provider.models : [{ id: model || "custom-model", name: model || "custom-model", note: "" }]).map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
               </option>
             ))}
+            {discovered.length > 0 && (
+              <optgroup label="Discovered from provider">
+                {discovered.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </optgroup>
+            )}
             <option value="">custom…</option>
           </select>
           {provider.id === "custom" && (
@@ -93,6 +136,11 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
             <a href={provider.keyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--cursor-blue)" }}>
               {provider.keyUrl}
             </a>
+          </div>
+        )}
+        {modelsNote && (
+          <div style={{ fontSize: 12, color: "var(--cursor-text-tertiary)" }}>
+            🔄 {modelsNote}
           </div>
         )}
         {testResult && (

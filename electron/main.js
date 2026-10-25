@@ -288,6 +288,16 @@ function defaultSettings() {
 
 ipcMain.handle("providers:list", () => PROVIDERS);
 
+ipcMain.handle("providers:fetchModels", async (_e, { providerId, apiKey, baseUrl }) => {
+  try {
+    const { fetchModels } = require("./providers");
+    const models = await fetchModels({ providerId, apiKey, baseUrl });
+    return { ok: true, models };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
 ipcMain.handle("providers:test", async (_e, { providerId, apiKey, baseUrl, model }) => {
   const provider = providerById(providerId);
   if (!provider) return { ok: false, error: "unknown provider" };

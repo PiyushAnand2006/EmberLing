@@ -19,6 +19,7 @@ const api = {
   providers: {
     list: () => ipcRenderer.invoke("providers:list"),
     test: (payload) => ipcRenderer.invoke("providers:test", payload),
+    fetchModels: (payload) => ipcRenderer.invoke("providers:fetchModels", payload),
   },
 
   agent: {

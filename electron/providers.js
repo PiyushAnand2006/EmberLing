@@ -101,6 +101,32 @@ function providerById(id) {
   return PROVIDERS.find((p) => p.id === id) || null;
 }
 
+// Derive the /models listing endpoint from a chat-completions URL
+function modelsUrl(baseUrl) {
+  return String(baseUrl || "").replace(/\/chat\/completions\/?$/, "") + "/models";
+}
+
+// Live model discovery: GET /models with the saved key (OpenAI-compatible
+// shape { data: [{ id }] }; tolerate { models: [{ name | id }] }).
+async function fetchModels({ providerId, apiKey, baseUrl }) {
+  const provider = providerById(providerId);
+  if (!provider) throw new Error("unknown provider");
+  if (provider.keyless) throw new Error("keyless provider uses its fixed model list");
+  const url = modelsUrl(baseUrl || provider.url);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) throw new Error(`models HTTP ${res.status}`);
+  const json = await res.json();
+  const rows = Array.isArray(json) ? json : json.data || json.models || [];
+  const ids = rows
+    .map((m) => (typeof m === "string" ? m : m.id || m.name || m.model))
+    .filter((id) => typeof id === "string" && id.length)
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 200);
+  return ids;
+}
+
 // settings: { providers: { [id]: { apiKey, baseUrl?, model } }, activeProvider, activeModel }
 function activeConfig(settings) {
   const pid = settings.activeProvider || "";
@@ -293,4 +319,4 @@ async function transcribeWith(url, key, model, filePath, mimeType) {
   return json.text || "";
 }
 
-module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, transcribe };
+module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, transcribe, fetchModels, modelsUrl };

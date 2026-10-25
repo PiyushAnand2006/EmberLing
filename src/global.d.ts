@@ -12,6 +12,7 @@ declare global {
     providers: {
       list(): Promise<any[]>;
       test(payload: { providerId: string; apiKey: string; baseUrl?: string; model?: string }): Promise<{ ok: boolean; sample?: string; error?: string }>;
+      fetchModels(payload: { providerId: string; apiKey: string; baseUrl?: string }): Promise<{ ok: boolean; models?: string[]; error?: string }>;
     };
     agent: {
       send(payload: { conversationId: string; history: { role: string; content: string }[]; botId?: string; mode?: string }): Promise<{ ok: boolean; error?: string; stopped?: boolean }>;
