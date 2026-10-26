@@ -4,6 +4,8 @@
 
 const providers = require("./providers");
 const { TOOL_DEFS, executeTool, STATUS_BY_TOOL } = require("./tools");
+const integTools = require("./integration-tools");
+const INTEG_STATUS = integTools.STATUS_BY_TOOL;
 
 const MAX_STEPS = 24;
 
@@ -14,12 +16,22 @@ function systemPrompt(opts) {
     `You can run tools on the user's computer (commands, file edits, web search/fetch, image and clip generation, computer use, subagents, MCP tools).`,
     `Prefer acting over narrating: call tools directly, keep prose short and friendly.`,
     `Use plain markdown. Embed generated photos with markdown image syntax.`,
-    `Rich blocks you may emit in fenced code blocks: \`\`\`mermaid (diagrams), \`\`\`chart (JSON {type:"bar"|"line"|"pie", data, labels}), \`\`\`html (interactive preview), \`\`\`clip (already-formatted clip JSON).`,
+    `Rich blocks you may emit in fenced code blocks: \`\`\`mermaid (diagrams), \`\`\`chart (JSON {type:"bar"|"line"|"pie"|"area"|"scatter"|"donut", data, labels, x?, y?}), \`\`\`graph (JSON {nodes:[{id,label}], edges:[{source,target}]}), \`\`\`three (JSON {shape:"sphere"|"points"|"torus"|"cube", count, color}), \`\`\`html (interactive preview), \`\`\`clip (already-formatted clip JSON).`,
     `When you learn a durable fact or preference about the user, save it with save_memory. Never save passwords, API keys, card numbers, or other secrets.`,
   ];
   if (opts?.botInstructions) lines.push(`Agent instructions from the user: ${opts.botInstructions}`);
   if (opts?.botKnowledge?.length) {
     lines.push(`Bot knowledge files:\n${opts.botKnowledge.map((k) => `--- ${k.name} ---\n${String(k.text).slice(0, 8000)}`).join("\n")}`);
+  }
+  if (opts?.botSkills?.length) {
+    lines.push(
+      `Installed skills (replayable procedures — follow the steps when the task matches):\n${opts.botSkills
+        .map((s) => `--- Skill: ${s.name} ---\n${s.instructions}${s.steps?.length ? "\nSteps:\n" + s.steps.map((st, i) => `${i + 1}. ${st}`).join("\n") : ""}`)
+        .join("\n")}`
+    );
+  }
+  if (opts?.mcpInstructions) {
+    lines.push(`MCP server usage instructions from the user:\n${opts.mcpInstructions}`);
   }
   if (opts?.memories?.length) {
     lines.push(`Known memories about the user:\n${opts.memories.map((m) => `- ${m.text}`).join("\n")}`);
@@ -191,9 +203,9 @@ function mergeSplitToolCalls(calls, knownNames) {
  * Run one agent turn.
  * events: { onStatus(text), onDelta(text), onToolCall(call), onToolResult(call, result), onApprovalRequest(call) -> Promise<bool> }
  */
-async function runAgentTurn({ settings, history, approvalMode, botInstructions, botKnowledge, memories, agentTools, signal, events, toolContext, extraToolDefs }) {
+async function runAgentTurn({ settings, history, approvalMode, botInstructions, botKnowledge, botSkills, mcpInstructions, memories, agentTools, signal, events, toolContext, extraToolDefs }) {
   const messages = [
-    { role: "system", content: systemPrompt({ botInstructions, botKnowledge, memories }) },
+    { role: "system", content: systemPrompt({ botInstructions, botKnowledge, botSkills, memories, mcpInstructions }) },
     ...history,
   ];
   const enabled = new Set(agentTools && agentTools.length ? agentTools : TOOL_DEFS.map((t) => t.function.name));
@@ -325,14 +337,19 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
       } else {
         const call = p.call;
         events.onToolCall(call);
-        events.onStatus(STATUS_BY_TOOL[call.name] || "Working");
+        events.onStatus(INTEG_STATUS[call.name] || STATUS_BY_TOOL[call.name] || "Working");
         try {
-          result = await executeTool(call, {
-            signal,
-            approvalMode,
-            approve: events.onApprovalRequest,
-            ...toolContext,
-          });
+          // Section-A integration tools live in their own dispatcher; local
+          // and MCP tools fall through to executeTool.
+          result = toolContext?.tryIntegrationTool ? await toolContext.tryIntegrationTool(call) : null;
+          if (result === null || result === undefined) {
+            result = await executeTool(call, {
+              signal,
+              approvalMode,
+              approve: events.onApprovalRequest,
+              ...toolContext,
+            });
+          }
         } catch (err) {
           if (err?.name === "AbortError") throw err;
           result = { ok: false, error: String(err?.message || err) };

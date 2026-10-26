@@ -60,6 +60,52 @@ declare global {
   files: {
     openViewer(filePath: string): Promise<boolean>;
   };
+  mcpMarketplace: {
+    list(): Promise<any[]>;
+    add(payload: { name: string; placeholderValue?: string }): Promise<{ ok: boolean; tools?: string[]; error?: string }>;
+    setInstructions(payload: { name: string; instructions: string }): Promise<{ ok: boolean }>;
+    setToolEnabled(payload: { server: string; tool: string; enabled: boolean }): Promise<{ ok: boolean }>;
+    restart(name: string): Promise<{ ok: boolean; error?: string }>;
+  };
+  plugins: {
+    list(): Promise<any[]>;
+    toggle(payload: { id: string; enabled: boolean }): Promise<{ ok: boolean }>;
+    uninstall(id: string): Promise<{ ok: boolean }>;
+    installFile(): Promise<{ ok: boolean; id?: string; tools?: string[]; error?: string }>;
+  };
+  skills: {
+    list(): Promise<any[]>;
+    upsert(skill: any): Promise<{ ok: boolean; id: string }>;
+    remove(id: string): Promise<{ ok: boolean }>;
+  };
+  calendar: {
+    list(): Promise<any[]>;
+    upsert(ev: any): Promise<{ ok: boolean; id: string }>;
+    remove(id: string): Promise<{ ok: boolean }>;
+    exportIcs(): Promise<{ ok: boolean; path?: string; error?: string }>;
+    importIcs(): Promise<{ ok: boolean; imported?: number; error?: string }>;
+  };
+  contacts: {
+    list(): Promise<any[]>;
+    upsert(contact: any): Promise<{ ok: boolean; id: string }>;
+    remove(id: string): Promise<{ ok: boolean }>;
+  };
+  canvas: {
+    open(html: string): void;
+  };
+  integrations: {
+    reposTest(payload: { provider: string; token: string; org?: string }): Promise<{ ok: boolean; repos?: any[]; error?: string }>;
+    slackTest(token: string): Promise<{ ok: boolean; user?: string; team?: string; error?: string }>;
+    teamsStartDeviceCode(): Promise<{ deviceCode?: string; userCode?: string; verifyUrl?: string; error?: string }>;
+    teamsPollToken(deviceCode: string): Promise<{ ok: boolean; pending?: boolean; error?: string }>;
+    teamsMe(): Promise<{ name?: string; mail?: string; error?: string }>;
+    opStatus(): Promise<{ available: boolean; version?: string; error?: string }>;
+    imessagePlatform(): Promise<{ isMac: boolean; platform: string }>;
+    remoteGenerateKey(name: string): Promise<{ publicKey?: string; privateKeyPath?: string; error?: string }>;
+    remoteTest(cfg: { name: string; host: string; port?: number; user: string }): Promise<{ ok: boolean; detail?: string; error?: string }>;
+    licenseActivate(key: string): Promise<{ ok: boolean; name?: string; error?: string }>;
+    licenseStatus(): Promise<{ plus: boolean; holder: string }>;
+  };
   updater: {
     check(): Promise<{ ok: boolean; current: string; latest?: string; updateAvailable?: boolean; state?: string; portable: boolean; error?: string }>;
     install(): void;

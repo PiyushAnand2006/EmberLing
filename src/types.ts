@@ -93,6 +93,10 @@ export interface Bot {
   instructions: string;
   description?: string;
   knowledge: { name: string; text: string }[];
+  /** Block B12: skills installed onto this bot (replayable procedures). */
+  skills?: string[];
+  /** Block C: team bots — local member roster with roles. */
+  members?: { name: string; role: "owner" | "member" }[];
   createdAt: number;
   team?: boolean;
 }
@@ -137,6 +141,10 @@ export interface Settings {
   language: string;
   queueOffline: boolean;
   plus: boolean;
+  plusKeyHolder?: string;
+  /** Section A: where agent tools execute — this machine or the SSH remote. */
+  executionTarget?: "local" | "remote";
+  remote?: { name: string; host: string; port?: number; user: string };
   orbPosition?: { x: number; y: number };
   voice: { input: string; rate: number };
 }
@@ -153,6 +161,10 @@ export interface McpConfig {
   command: string;
   args: string[];
   enabled: boolean;
+  /** Per-server agent usage instructions (Block B13). */
+  instructions?: string;
+  /** Tool names disabled for this server (Block B13). */
+  disabledTools?: string[];
 }
 
 export interface McpState {

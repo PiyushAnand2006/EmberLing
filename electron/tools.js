@@ -7,6 +7,8 @@
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { runShellScript, validateScript } = require("./shell-runner");
+const { runRemoteScript } = require("./remote");
+const computerUse = require("./computer-use");
 
 const TOOL_DEFS = [
   {
@@ -274,9 +276,55 @@ const TOOL_DEFS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "screen_click",
+      description:
+        "Computer use: move the mouse to screen coordinates (x,y) and click. Use screen_screenshot + window rects to find coordinates first. Requires approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          x: { type: "number" },
+          y: { type: "number" },
+          button: { type: "string", description: "'left' (default) or 'right'" },
+          double: { type: "boolean", description: "double-click" },
+        },
+        required: ["x", "y"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "screen_scroll",
+      description: "Computer use: scroll the mouse wheel up/down by a number of notches. Requires approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          direction: { type: "string", description: "'up' or 'down'" },
+          amount: { type: "number", description: "notches, 1-10" },
+        },
+        required: ["direction"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_window_rect",
+      description:
+        "Computer use: bring a window to the foreground by (partial) title and return its screen rectangle — useful to pick click coordinates inside it. Requires approval.",
+      parameters: {
+        type: "object",
+        properties: { title: { type: "string" } },
+        required: ["title"],
+      },
+    },
+  },
 ];
 
-const NEEDS_APPROVAL = new Set(["run_command", "write_file", "edit_file", "focus_window", "type_text"]);
+const NEEDS_APPROVAL = new Set(["run_command", "write_file", "edit_file", "focus_window", "type_text", "screen_click", "screen_scroll", "get_window_rect"]);
 const RISKY_RE = /rm\s|del\s|format|sudo|remove-item/i;
 
 const { webSearch, webFetch, generatePhoto, truncate } = require("./web-tools");
@@ -311,22 +359,38 @@ async function executeTool(call, ctx) {
     switch (name) {
       case "run_command": {
         const script = validateScript(args.command);
+        const remote = ctx.getRemote?.();
         const needsApproval =
           ctx.approvalMode === "ask" ||
           (ctx.approvalMode === "askRisky" && RISKY_RE.test(script));
         if (needsApproval) {
-          const ok = await ctx.approve({ tool: name, title: "Run a command on your computer", detail: script, kind: "command" });
+          const ok = await ctx.approve({ tool: name, title: remote?.enabled ? "Run a command on the remote computer" : "Run a command on your computer", detail: script, kind: "command" });
           if (!ok) return { ok: false, error: "User declined to run this command." };
+        }
+        if (remote?.enabled) {
+          const res = await runRemoteScript({ ...remote, script, cwd: args.cwd });
+          return { ok: true, ...res };
         }
         return await runShellScript({ script, cwd: args.cwd, signal });
       }
       case "read_file": {
+        const remote = ctx.getRemote?.();
+        if (remote?.enabled) {
+          const res = await runRemoteScript({ ...remote, script: `cat ${JSON.stringify(String(args.path))}` });
+          return res.exitCode === 0 ? { ok: true, content: res.stdout.slice(0, 20000) } : { ok: false, error: (res.stderr || `exit ${res.exitCode}`).slice(0, 300) };
+        }
         const content = await fsp.readFile(args.path, "utf8");
         return { ok: true, content: truncate(content, 20000) };
       }
       case "write_file": {
         const ok = await ctx.approve({ tool: name, title: "Write a file", detail: `${args.path}\n(${(args.content || "").length} bytes)`, kind: "write" });
         if (!ok) return { ok: false, error: "User declined this file write." };
+        const remote = ctx.getRemote?.();
+        if (remote?.enabled) {
+          const heredoc = `cat > ${JSON.stringify(String(args.path))} << 'EMBERLING_EOF'\n${String(args.content ?? "")}\nEMBERLING_EOF\n`;
+          const res = await runRemoteScript({ ...remote, script: heredoc });
+          return res.exitCode === 0 ? { ok: true, wrote: `remote:${args.path}` } : { ok: false, error: (res.stderr || `exit ${res.exitCode}`).slice(0, 300) };
+        }
         await fsp.mkdir(path.dirname(args.path), { recursive: true });
         await fsp.writeFile(args.path, args.content ?? "", "utf8");
         return { ok: true, wrote: args.path };
@@ -340,8 +404,14 @@ async function executeTool(call, ctx) {
         await fsp.writeFile(args.path, next, "utf8");
         return { ok: true, edited: args.path };
       }
-      case "list_dir":
+      case "list_dir": {
+        const remote = ctx.getRemote?.();
+        if (remote?.enabled) {
+          const res = await runRemoteScript({ ...remote, script: `ls -la ${JSON.stringify(String(args.path))}` });
+          return res.exitCode === 0 ? { ok: true, entries: res.stdout.slice(0, 8000) } : { ok: false, error: (res.stderr || `exit ${res.exitCode}`).slice(0, 300) };
+        }
         return { ok: true, entries: await listDir(args.path) };
+      }
       case "web_search":
         if (!String(args.query || "").trim()) return { ok: false, error: "web_search needs a non-empty 'query' string argument." };
         return { ok: true, results: await webSearch(args.query) };
@@ -413,6 +483,30 @@ async function executeTool(call, ctx) {
         if (typeof ctx.takeScreenScreenshot !== "function") return { ok: false, error: "screen capture unavailable" };
         return await ctx.takeScreenScreenshot();
       }
+      case "screen_click": {
+        if (!computerUse.isSupported) return { ok: false, error: "input automation is Windows-only in this build" };
+        if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
+          const ok = await ctx.approve({ tool: name, title: "Computer use", detail: `Click at (${args.x}, ${args.y})${args.double ? " (double)" : ""}${args.button === "right" ? " right button" : ""}`, kind: "computer-use" });
+          if (!ok) return { ok: false, error: "User declined this computer-use action." };
+        }
+        return await computerUse.clickAt(args.x, args.y, args.button, args.double);
+      }
+      case "screen_scroll": {
+        if (!computerUse.isSupported) return { ok: false, error: "input automation is Windows-only in this build" };
+        if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
+          const ok = await ctx.approve({ tool: name, title: "Computer use", detail: `Scroll ${args.direction || "down"} ×${args.amount || 3}`, kind: "computer-use" });
+          if (!ok) return { ok: false, error: "User declined this computer-use action." };
+        }
+        return await computerUse.scroll(args.direction, args.amount);
+      }
+      case "get_window_rect": {
+        if (!computerUse.isSupported) return { ok: false, error: "input automation is Windows-only in this build" };
+        if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
+          const ok = await ctx.approve({ tool: name, title: "Computer use", detail: `Focus and measure window: ${args.title}`, kind: "computer-use" });
+          if (!ok) return { ok: false, error: "User declined this computer-use action." };
+        }
+        return await computerUse.windowRect(args.title);
+      }
       case "save_memory": {
         if (typeof ctx.saveMemory !== "function") return { ok: false, error: "memories unavailable" };
         return await ctx.saveMemory(String(args.text || "").slice(0, 500));
@@ -454,6 +548,9 @@ const STATUS_BY_TOOL = {
   list_windows: "Looking at your windows",
   focus_window: "Using your computer",
   type_text: "Using your computer",
+  screen_click: "Using your computer",
+  screen_scroll: "Using your computer",
+  get_window_rect: "Using your computer",
   save_memory: "Saving a memory",
 };
 

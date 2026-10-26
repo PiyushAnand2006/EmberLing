@@ -82,6 +82,59 @@ const api = {
     openViewer: (filePath) => ipcRenderer.invoke("files:openViewer", filePath),
   },
 
+  mcpMarketplace: {
+    list: () => ipcRenderer.invoke("mcp:marketplace"),
+    add: (payload) => ipcRenderer.invoke("mcp:addFromMarketplace", payload),
+    setInstructions: (payload) => ipcRenderer.invoke("mcp:setInstructions", payload),
+    setToolEnabled: (payload) => ipcRenderer.invoke("mcp:setToolEnabled", payload),
+    restart: (name) => ipcRenderer.invoke("mcp:restart", name),
+  },
+
+  plugins: {
+    list: () => ipcRenderer.invoke("plugins:list"),
+    toggle: (payload) => ipcRenderer.invoke("plugins:toggle", payload),
+    uninstall: (id) => ipcRenderer.invoke("plugins:uninstall", id),
+    installFile: () => ipcRenderer.invoke("plugins:installFile"),
+  },
+
+  skills: {
+    list: () => ipcRenderer.invoke("skills:list"),
+    upsert: (skill) => ipcRenderer.invoke("skills:upsert", skill),
+    remove: (id) => ipcRenderer.invoke("skills:remove", id),
+  },
+
+  calendar: {
+    list: () => ipcRenderer.invoke("calendar:list"),
+    upsert: (ev) => ipcRenderer.invoke("calendar:upsert", ev),
+    remove: (id) => ipcRenderer.invoke("calendar:remove", id),
+    exportIcs: () => ipcRenderer.invoke("calendar:exportIcs"),
+    importIcs: () => ipcRenderer.invoke("calendar:importIcs"),
+  },
+
+  contacts: {
+    list: () => ipcRenderer.invoke("contacts:list"),
+    upsert: (contact) => ipcRenderer.invoke("contacts:upsert", contact),
+    remove: (id) => ipcRenderer.invoke("contacts:remove", id),
+  },
+
+  canvas: {
+    open: (html) => ipcRenderer.send("canvas:open", html),
+  },
+
+  integrations: {
+    reposTest: (payload) => ipcRenderer.invoke("repos:test", payload),
+    slackTest: (token) => ipcRenderer.invoke("slack:test", token),
+    teamsStartDeviceCode: () => ipcRenderer.invoke("teams:startDeviceCode"),
+    teamsPollToken: (deviceCode) => ipcRenderer.invoke("teams:pollToken", deviceCode),
+    teamsMe: () => ipcRenderer.invoke("teams:me"),
+    opStatus: () => ipcRenderer.invoke("op:status"),
+    imessagePlatform: () => ipcRenderer.invoke("imessage:platform"),
+    remoteGenerateKey: (name) => ipcRenderer.invoke("remote:generateKey", name),
+    remoteTest: (cfg) => ipcRenderer.invoke("remote:test", cfg),
+    licenseActivate: (key) => ipcRenderer.invoke("license:activate", key),
+    licenseStatus: () => ipcRenderer.invoke("license:status"),
+  },
+
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),
     install: () => ipcRenderer.send("updater:install"),

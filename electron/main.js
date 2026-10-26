@@ -295,11 +295,16 @@ ipcMain.on("orb:files-dropped", (_e, files) => {
 });
 
 /* ---------------- IPC: stores ---------------- */
+const secureStore = require("./secure-store");
 const COLLECTIONS = ["conversations", "bots", "memories", "automations", "settings", "integrations", "usage", "mcp"];
 for (const col of COLLECTIONS) {
-  ipcMain.handle(`store:get:${col}`, () => store.load(col, col === "conversations" ? [] : col === "settings" ? defaultSettings() : {}));
+  ipcMain.handle(`store:get:${col}`, () => {
+    const value = store.load(col, col === "conversations" ? [] : col === "settings" ? defaultSettings() : {});
+    // secrets at rest are DPAPI-encrypted (device-bound); decrypt transparently
+    return col === "settings" || col === "integrations" ? secureStore.decryptDeep(value) : value;
+  });
   ipcMain.handle(`store:set:${col}`, (_e, value) => {
-    store.update(col, () => value);
+    store.update(col, () => (col === "settings" || col === "integrations" ? secureStore.encryptDeep(value) : value));
     store.onRebuild?.();
     return true;
   });
@@ -348,6 +353,121 @@ ipcMain.handle("updater:check", async () => {
 });
 ipcMain.on("updater:install", () => updateApi?.install());
 ipcMain.handle("updater:openReleases", () => shell.openExternal("https://github.com/PiyushAnand2006/EmberLing/releases/latest"));
+
+/* ---------------- IPC: Section-A integrations ---------------- */
+const reposApi = require("./integrations/repos");
+const slackApi = require("./integrations/slack");
+const teamsApi = require("./integrations/teams");
+const imessageApi = require("./integrations/imessage");
+const opvault = require("./integrations/opvault");
+const remoteExec = require("./remote");
+const license = require("./license");
+const { TOOL_DEFS: INTEG_TOOL_DEFS, executeIntegrationTool } = require("./integration-tools");
+
+function getInteg(name, field) {
+  const cfg = secureStore.decryptDeep(store.load("integrations", {}));
+  return field ? cfg[name]?.[field] : cfg[name];
+}
+function getRemote() {
+  const s = { ...defaultSettings(), ...store.load("settings", {}) };
+  const r = s.remote || {};
+  return {
+    enabled: s.executionTarget === "remote" && !!r.host && !!r.user,
+    name: r.name || "remote",
+    host: r.host,
+    port: r.port || 22,
+    user: r.user,
+    keyPath: remoteExec.keyPaths(r.name || "default").priv,
+  };
+}
+
+/* Remote computer (SSH) — "On its computer" */
+ipcMain.handle("remote:generateKey", async (_e, name) => {
+  try {
+    return await remoteExec.generateKeyPair(name);
+  } catch (err) {
+    return { error: String(err.message) };
+  }
+});
+ipcMain.handle("remote:test", async (_e, cfg) => {
+  try {
+    return await remoteExec.testConnection({ ...cfg, keyPath: remoteExec.keyPaths(cfg.name || "default").priv });
+  } catch (err) {
+    return { ok: false, detail: String(err.message) };
+  }
+});
+ipcMain.on("remote:setTarget", (_e, target) => {
+  store.update("settings", (s) => ({ ...defaultSettings(), ...s, executionTarget: target === "remote" ? "remote" : "local" }));
+});
+
+/* Repo connectors */
+ipcMain.handle("repos:test", async (_e, { provider, token, org }) => {
+  try {
+    if (provider === "github") return { ok: true, repos: (await reposApi.ghRepos(token)).slice(0, 10) };
+    if (provider === "gitlab") return { ok: true, repos: (await reposApi.glProjects(token)).slice(0, 10) };
+    if (provider === "bitbucket") return { ok: true, repos: (await reposApi.bbRepos(token)).slice(0, 10) };
+    if (provider === "azure") return { ok: true, repos: await reposApi.azProjects(token, org) };
+    return { ok: false, error: "unknown provider" };
+  } catch (err) {
+    return { ok: false, error: String(err.message) };
+  }
+});
+
+/* Slack */
+ipcMain.handle("slack:test", async (_e, token) => {
+  try {
+    return await slackApi.test(token);
+  } catch (err) {
+    return { ok: false, error: String(err.message) };
+  }
+});
+
+/* Microsoft Teams — device-code OAuth */
+ipcMain.handle("teams:startDeviceCode", async () => {
+  try {
+    return await teamsApi.startDeviceCode();
+  } catch (err) {
+    return { error: String(err.message) };
+  }
+});
+ipcMain.handle("teams:pollToken", async (_e, deviceCode) => {
+  try {
+    const t = await teamsApi.pollToken(deviceCode, 12000);
+    store.update("integrations", (s) => ({
+      ...s,
+      teams: { ...(s.teams || {}), accessToken: t.accessToken, refreshToken: t.refreshToken, connected: true },
+    }));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, pending: String(err.message).includes("authorization_pending"), error: String(err.message) };
+  }
+});
+ipcMain.handle("teams:me", async () => {
+  try {
+    return await teamsApi.me(getInteg("teams", "accessToken"));
+  } catch (err) {
+    return { error: String(err.message) };
+  }
+});
+
+/* 1Password */
+ipcMain.handle("op:status", async () => opvault.available());
+
+/* iMessage platform note */
+ipcMain.handle("imessage:platform", () => ({ isMac: imessageApi.IS_MAC, platform: process.platform }));
+
+/* License (Emberling Plus) */
+ipcMain.handle("license:activate", (_e, key) => {
+  const res = license.validate(key);
+  if (res.ok) {
+    store.update("settings", (s) => ({ ...defaultSettings(), ...s, plus: true, plusKeyHolder: res.name }));
+  }
+  return res;
+});
+ipcMain.handle("license:status", () => {
+  const s = store.load("settings", defaultSettings());
+  return { plus: !!s.plus, holder: s.plusKeyHolder || "" };
+});
 
 ipcMain.handle("providers:fetchModels", async (_e, { providerId, apiKey, baseUrl }) => {
   try {
@@ -501,17 +621,30 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
 
   try {
     const mcp = require("./mcp");
-    const mcpDefs = mcp.agentToolDefs();
+    const mcpCfgs = store.load("mcp", []);
+    const mcpDefs = mcp.agentToolDefs().filter((d) => {
+      const c = mcpCfgs.find((x) => x.name === d._mcp.server);
+      return !(c?.disabledTools || []).includes(d._mcp.tool);
+    });
+    const mcpInstructions = mcpCfgs
+      .filter((c) => (c.instructions || "").trim() && mcp.getServer(c.name))
+      .map((c) => `[MCP server "${c.name}"] ${c.instructions.trim()}`)
+      .join("\n");
+    const integTools = require("./integration-tools");
+    const plugins = require("./plugins");
+    const pluginDefs = plugins.agentToolDefs(store);
     const result = await runAgentTurn({
       settings,
       history,
       approvalMode: settings.approvalMode || "ask",
       botInstructions: bot?.instructions || "",
       botKnowledge: bot?.knowledge || [],
+      botSkills: bot?.skills || [],
+      mcpInstructions,
       memories,
       agentTools: settings.agentTools,
       signal: controller.signal,
-      extraToolDefs: mcpDefs,
+      extraToolDefs: [...mcpDefs, ...integTools.TOOL_DEFS, ...pluginDefs],
       toolContext: {
         takeScreenshot,
         takeScreenScreenshot,
@@ -520,6 +653,15 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
         requestForm,
         uiAction: (action) => send("uiAction", action),
         callMcp: (toolName) => mcp.resolveMcpCall(toolName),
+        getInteg,
+        getRemote,
+        store,
+        tryIntegrationTool: async (call) => {
+          // dispatch order: Section-A integrations → plugins → null (local)
+          const viaInteg = await integTools.executeIntegrationTool(call, { getInteg, getRemote, store });
+          if (viaInteg !== null && viaInteg !== undefined) return viaInteg;
+          return plugins.executePluginTool(call, store);
+        },
       },
       events: {
         onStatus: (text) => send("status", { text }),
@@ -738,6 +880,120 @@ ipcMain.handle("mcp:remove", (_e, name) => {
 ipcMain.handle("mcp:tools", () => {
   const mcp = require("./mcp");
   return mcp.agentToolDefs().map((d) => ({ name: d.function.name, description: d.function.description, server: d._mcp.server }));
+});
+
+/* Block B13: MCP marketplace + per-server instructions / disabled tools / restart */
+const MCP_MARKETPLACE = [
+  { name: "filesystem", label: "Filesystem", desc: "Read/write local files in an allowed directory.", command: "npx -y @modelcontextprotocol/server-filesystem", argsTemplate: ["{{dir}}"], placeholder: "Directory to expose (e.g. C:\\Users\\you\\projects)" },
+  { name: "fetch", label: "Fetch", desc: "Fetch web pages and convert to markdown.", command: "npx -y @modelcontextprotocol/server-fetch", argsTemplate: [], placeholder: "" },
+  { name: "memory", label: "Memory", desc: "Persistent knowledge-graph memory.", command: "npx -y @modelcontextprotocol/server-memory", argsTemplate: [], placeholder: "" },
+  { name: "time", label: "Time", desc: "Time and timezone conversions.", command: "npx -y @modelcontextprotocol/server-time", argsTemplate: [], placeholder: "" },
+  { name: "everything", label: "Everything (demo)", desc: "Test server exercising all MCP features.", command: "npx -y @modelcontextprotocol/server-everything", argsTemplate: [], placeholder: "" },
+];
+ipcMain.handle("mcp:marketplace", () => MCP_MARKETPLACE);
+ipcMain.handle("mcp:addFromMarketplace", async (_e, { name, placeholderValue }) => {
+  const entry = MCP_MARKETPLACE.find((m) => m.name === name);
+  if (!entry) return { ok: false, error: "unknown marketplace entry" };
+  const args = entry.argsTemplate.map((a) => String(a).replace("{{dir}}", String(placeholderValue || process.env.USERPROFILE || process.env.HOME || ".")));
+  const mcp = require("./mcp");
+  const config = { name: entry.name, command: entry.command.split(" ")[0], args: [...entry.command.split(" ").slice(1), ...args], enabled: true };
+  try {
+    await mcp.startServer(config);
+  } catch (err) {
+    return { ok: false, error: String(err.message) };
+  }
+  store.update("mcp", (list) => [...(list || []).filter((c) => c.name !== config.name), config]);
+  return { ok: true, tools: (mcp.getServer(entry.name)?.tools || []).map((t) => t.name) };
+});
+ipcMain.handle("mcp:setInstructions", (_e, { name, instructions }) => {
+  store.update("mcp", (list) => (list || []).map((c) => (c.name === name ? { ...c, instructions: String(instructions || "").slice(0, 4000) } : c)));
+  return { ok: true };
+});
+ipcMain.handle("mcp:setToolEnabled", (_e, { server, tool, enabled }) => {
+  store.update("mcp", (list) =>
+    (list || []).map((c) => {
+      if (c.name !== server) return c;
+      const disabled = new Set(c.disabledTools || []);
+      enabled ? disabled.delete(tool) : disabled.add(tool);
+      return { ...c, disabledTools: [...disabled] };
+    })
+  );
+  return { ok: true };
+});
+ipcMain.handle("mcp:restart", async (_e, name) => {
+  const mcp = require("./mcp");
+  const cfg = (store.load("mcp", []) || []).find((c) => c.name === name);
+  if (!cfg) return { ok: false, error: "not configured" };
+  mcp.stopServer(name);
+  try {
+    await mcp.startServer(cfg);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err.message) };
+  }
+});
+
+/* Block B11: plugins */
+ipcMain.handle("plugins:list", () => require("./plugins").registry(store));
+ipcMain.handle("plugins:toggle", (_e, { id, enabled }) => {
+  require("./plugins").setStatus(store, id, !!enabled);
+  return { ok: true };
+});
+ipcMain.handle("plugins:uninstall", (_e, id) => {
+  require("./plugins").uninstall(store, id);
+  return { ok: true };
+});
+ipcMain.handle("plugins:installFile", async () => {
+  const res = await dialog.showOpenDialog(mainWindow, { properties: ["openFile"], filters: [{ name: "Plugin manifest", extensions: ["json"] }] });
+  if (res.canceled || !res.filePaths[0]) return { ok: false, error: "cancelled" };
+  try {
+    const out = await require("./plugins").installFromFile(store, res.filePaths[0]);
+    return out;
+  } catch (err) {
+    return { ok: false, error: String(err.message) };
+  }
+});
+
+/* Block B12: skills */
+ipcMain.handle("skills:list", () => require("./skills").list(store));
+ipcMain.handle("skills:upsert", (_e, skill) => require("./skills").upsert(store, skill));
+ipcMain.handle("skills:remove", (_e, id) => require("./skills").remove(store, id));
+
+/* Block B16: calendar */
+ipcMain.handle("calendar:list", () => require("./calendar").list(store));
+ipcMain.handle("calendar:upsert", (_e, ev) => require("./calendar").upsert(store, ev));
+ipcMain.handle("calendar:remove", (_e, id) => require("./calendar").remove(store, id));
+ipcMain.handle("calendar:exportIcs", async () => {
+  const ics = require("./calendar").toIcs(require("./calendar").list(store));
+  const saved = await dialog.showSaveDialog(mainWindow, { defaultPath: "emberling-calendar.ics" });
+  if (saved.canceled || !saved.filePath) return { ok: false, error: "cancelled" };
+  await fsp.writeFile(saved.filePath, ics, "utf8");
+  return { ok: true, path: saved.filePath };
+});
+ipcMain.handle("calendar:importIcs", async () => {
+  const res = await dialog.showOpenDialog(mainWindow, { properties: ["openFile"], filters: [{ name: "iCalendar", extensions: ["ics"] }] });
+  if (res.canceled || !res.filePaths[0]) return { ok: false, error: "cancelled" };
+  const text = await fsp.readFile(res.filePaths[0], "utf8");
+  return require("./calendar").importIcs(store, text);
+});
+
+/* Block B14: contacts */
+ipcMain.handle("contacts:list", () => require("./contacts").list(store));
+ipcMain.handle("contacts:upsert", (_e, contact) => require("./contacts").upsert(store, contact));
+ipcMain.handle("contacts:remove", (_e, id) => require("./contacts").remove(store, id));
+
+/* Block C: canvas pop-out — detach an ```html preview into its own window */
+ipcMain.on("canvas:open", (_e, html) => {
+  const win = new BrowserWindow({
+    width: 980,
+    height: 720,
+    backgroundColor: "#141414",
+    autoHideMenuBar: true,
+    title: "Emberling Canvas",
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  const data = `data:text/html;charset=utf-8,${encodeURIComponent(String(html || "").slice(0, 2_000_000))}`;
+  win.loadURL(data).catch(() => {});
 });
 
 function connectSavedMcpServers() {
