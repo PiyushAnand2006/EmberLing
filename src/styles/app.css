@@ -535,6 +535,32 @@ input, textarea, select { font: inherit; color: inherit; }
   line-height: var(--conversation-line-height);
 }
 .composer-input::placeholder { color: var(--cursor-text-quaternary); }
+
+/* TipTap rich composer (Block B19) */
+.tiptap .ProseMirror {
+  outline: none;
+  min-height: 44px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 12px 14px 4px;
+}
+.tiptap .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--cursor-text-quaternary);
+}
+.tiptap .ProseMirror p { margin: 6px 0; }
+.tiptap .ProseMirror ul, .tiptap .ProseMirror ol { margin: 4px 0; padding-left: 22px; }
+.tiptap .ProseMirror pre {
+  background: rgba(0,0,0,0.42);
+  border-radius: var(--cursor-radius-lg);
+  padding: 8px 10px;
+  font-family: var(--cursor-font-family-mono);
+  font-size: 12px;
+}
+.tiptap .ProseMirror code { font-family: var(--cursor-font-family-mono); background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; }
 .composer-toolbar {
   display: flex;
   align-items: center;
