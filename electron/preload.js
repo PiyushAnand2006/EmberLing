@@ -82,6 +82,17 @@ const api = {
     openViewer: (filePath) => ipcRenderer.invoke("files:openViewer", filePath),
   },
 
+  updater: {
+    check: () => ipcRenderer.invoke("updater:check"),
+    install: () => ipcRenderer.send("updater:install"),
+    openReleases: () => ipcRenderer.invoke("updater:openReleases"),
+    onStatus: (handler) => {
+      const listener = (_e, payload) => handler(payload);
+      ipcRenderer.on("updater:event", listener);
+      return () => ipcRenderer.removeListener("updater:event", listener);
+    },
+  },
+
   onSettingsPush: (handler) => {
     const listener = (_e, settings) => handler(settings);
     ipcRenderer.on("settings:push", listener);

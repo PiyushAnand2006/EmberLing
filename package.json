@@ -63,11 +63,19 @@
     },
     "portable": {
       "artifactName": "Emberling-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "PiyushAnand2006",
+      "repo": "EmberLing"
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
+    "imapflow": "^1.0.191",
     "mammoth": "^1.13.0",
     "mermaid": "^12.2.0",
+    "nodemailer": "^7.0.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",

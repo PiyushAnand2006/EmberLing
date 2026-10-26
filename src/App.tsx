@@ -591,6 +591,69 @@ function Toasts() {
   );
 }
 
+// Auto-update banner (like the original's updater toast): download progress
+// pill, then a "Restart to update" card once the new version is staged.
+// Portable builds can't self-install, so they get a GitHub link instead.
+function UpdateBanner() {
+  const [status, setStatus] = useState<{ state: string; version?: string; percent?: number } | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  useEffect(
+    () =>
+      window.emberling.updater.onStatus((payload) => {
+        setStatus(payload);
+        // re-show the card if a newer update arrives after a dismissal
+        if (payload.state === "ready" || payload.state === "available") setDismissed(null);
+      }),
+    []
+  );
+  if (!status || dismissed === (status.state === "downloading" ? "downloading" : status.state + (status.version || ""))) return null;
+  const dismiss = () => setDismissed(status.state === "downloading" ? "downloading" : status.state + (status.version || ""));
+  if (status.state === "downloading") {
+    return (
+      <div className="update-banner">
+        <span style={{ color: "var(--cursor-text-secondary)" }}>
+          Updating Emberling{status.version ? ` to ${status.version}` : ""}
+          {status.percent != null && status.percent > 0 ? ` — ${status.percent}%` : "…"}
+        </span>
+        <button className="btn" onClick={dismiss}>
+          Hide
+        </button>
+      </div>
+    );
+  }
+  if (status.state === "ready") {
+    return (
+      <div className="update-banner">
+        <span>
+          <strong style={{ color: "var(--cursor-green)" }}>Emberling {status.version}</strong> is ready to install
+        </span>
+        <button className="btn primary" onClick={() => window.emberling.updater.install()}>
+          <IconCheck size={13} /> Restart to update
+        </button>
+        <button className="btn" onClick={dismiss}>
+          Later
+        </button>
+      </div>
+    );
+  }
+  if (status.state === "available") {
+    return (
+      <div className="update-banner">
+        <span>
+          New version <strong style={{ color: "var(--cursor-accent)" }}>{status.version}</strong> available
+        </span>
+        <button className="btn primary" onClick={() => window.emberling.updater.openReleases()}>
+          Get it from GitHub
+        </button>
+        <button className="btn" onClick={dismiss}>
+          Later
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
 function Shell() {
   const { route, conversations, activeConversationId } = useApp();
   const agent = useAgentOrchestration();
@@ -641,6 +704,7 @@ function Shell() {
         <Sidebar />
         <div className="main-column">{content}</div>
         <Toasts />
+        <UpdateBanner />
       </div>
     </AgentCtx.Provider>
   );

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useApp } from "../state";
 import type { ProviderInfo } from "../types";
 import { BUBBLE_COLORS } from "../types";
@@ -19,6 +19,48 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "usage", label: "Usage", icon: <IconClock size={14} /> },
   { id: "about", label: "About", icon: <IconInfo size={14} /> },
 ];
+
+// Auto-update status + manual check. Background progress also lands here via
+// the shared updater events, so the row mirrors the chat banner.
+function UpdatesRow() {
+  const [note, setNote] = useState("");
+  const [checking, setChecking] = useState(false);
+  useEffect(
+    () =>
+      window.emberling.updater.onStatus((p) => {
+        if (p.state === "downloading") setNote(`Downloading v${p.version || "update"}${p.percent != null ? ` — ${p.percent}%` : "…"}`);
+        else if (p.state === "ready") setNote(`v${p.version} ready — restart to update`);
+        else if (p.state === "available") setNote(`v${p.version} available`);
+      }),
+    []
+  );
+  const check = async () => {
+    setChecking(true);
+    try {
+      const res = await window.emberling.updater.check();
+      if (!res.ok) setNote(`Check failed: ${res.error || "unknown error"}`);
+      else if (res.state === "dev") setNote(`Dev mode — updater disabled (v${res.current})`);
+      else if (res.state === "unavailable") setNote(`v${res.current} — updater unavailable`);
+      else if (res.updateAvailable) setNote(`v${res.latest} available — downloading…`);
+      else setNote(`Up to date (v${res.current})`);
+    } catch (err: any) {
+      setNote(`Check failed: ${String(err?.message || err).slice(0, 120)}`);
+    } finally {
+      setChecking(false);
+    }
+  };
+  return (
+    <div className="settings-row">
+      <div className="row-label">Updates</div>
+      <span style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--cursor-text-tertiary)" }}>
+        <span>{note || "Automatic — checked at launch and every 6 hours"}</span>
+        <button className="btn" onClick={check} disabled={checking}>
+          {checking ? "Checking…" : "Check now"}
+        </button>
+      </span>
+    </div>
+  );
+}
 
 function ProviderCard({ provider }: { provider: ProviderInfo }) {
   const { settings, setSettings, toast } = useApp();
@@ -425,6 +467,7 @@ export function SettingsScreen() {
                 <div className="row-label">Version</div>
                 <span style={{ color: "var(--cursor-text-tertiary)" }}>0.75.9 (clone)</span>
               </div>
+              <UpdatesRow />
               <div className="settings-row">
                 <div className="row-label">Electron / Chrome / Node</div>
                 <span style={{ color: "var(--cursor-text-tertiary)" }}>

@@ -11,3 +11,7 @@ release/
 docs/diagram-*.html
 public/
 .diagram-design/
+
+# parallel-session tool artifacts
+.opencode/
+reports/

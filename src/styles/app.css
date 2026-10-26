@@ -909,6 +909,24 @@ select.text-input optgroup option {
 }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+/* ---------- Update banner ---------- */
+.update-banner {
+  position: fixed;
+  bottom: 18px; right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #242424;
+  border: 1px solid var(--cursor-accent);
+  color: var(--cursor-text-primary);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: var(--cursor-font-size-md);
+  box-shadow: var(--shadow-pop);
+  z-index: 210;
+  animation: toast-in 0.18s var(--ease-out);
+}
+
 /* ---------- Popover menu ---------- */
 .menu {
   position: fixed;

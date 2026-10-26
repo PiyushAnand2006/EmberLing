@@ -33,8 +33,43 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow = null;
 let orbWindow = null;
 let tray = null;
+let updateApi = null; // set by setupAutoUpdate when packaged
 const activeTurns = new Map(); // conversationId -> AbortController
 const pendingApprovals = new Map(); // approvalId -> {resolve, request}
+
+/* ---------------- Auto-update (electron-updater ↔ GitHub releases) ----------------
+ * Packaged NSIS installs: check GitHub for the latest release (latest.yml),
+ * download in the background, and surface a "Restart to update" banner —
+ * a pending update also applies silently on quit if the banner is dismissed.
+ * Portable builds can't self-install; they get a "get it from GitHub" button. */
+function setupAutoUpdate() {
+  if (!app.isPackaged) return null;
+  const portable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
+  let updater;
+  try {
+    ({ autoUpdater: updater } = require("electron-updater"));
+  } catch (err) {
+    console.warn("auto-update unavailable:", err?.message);
+    return null;
+  }
+  const push = (payload) => {
+    if (!mainWindow?.isDestroyed()) mainWindow.webContents.send("updater:event", payload);
+  };
+  updater.autoDownload = !portable;
+  updater.autoInstallOnAppQuit = true;
+  updater.on("update-available", (info) => push({ state: portable ? "available" : "downloading", version: info.version, portable }));
+  updater.on("download-progress", (p) => push({ state: "downloading", percent: Math.round(p.percent || 0), version: p.version }));
+  updater.on("update-downloaded", (info) => push({ state: "ready", version: info.version }));
+  updater.on("error", (err) => {
+    console.warn("update check failed:", err?.message);
+    push({ state: "error", message: String(err?.message || err).slice(0, 200) });
+  });
+  const check = () => updater.checkForUpdates();
+  // shortly after launch, then every 6 hours; offline failures stay quiet
+  setTimeout(() => check().catch(() => {}), 6000);
+  setInterval(() => check().catch(() => {}), 6 * 60 * 60 * 1000);
+  return { check, install: () => updater.quitAndInstall(true, true), portable };
+}
 
 function isDev() {
   return !!process.env.VITE_DEV_SERVER_URL;
@@ -212,6 +247,7 @@ function bootstrap() {
     createTray();
     startAutomationScheduler();
     connectSavedMcpServers();
+    updateApi = setupAutoUpdate();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
     });
@@ -294,6 +330,24 @@ function defaultSettings() {
 }
 
 ipcMain.handle("providers:list", () => PROVIDERS);
+
+/* ---------------- IPC: updater ---------------- */
+ipcMain.handle("updater:check", async () => {
+  const current = app.getVersion();
+  const portable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
+  if (!updateApi) {
+    return { ok: true, current, state: !app.isPackaged ? "dev" : "unavailable", portable };
+  }
+  try {
+    const result = await updateApi.check();
+    const latest = String(result?.updateInfo?.version || "");
+    return { ok: true, current, latest, updateAvailable: Boolean(latest) && latest !== current, portable };
+  } catch (err) {
+    return { ok: false, current, portable, error: String(err?.message || err).slice(0, 200) };
+  }
+});
+ipcMain.on("updater:install", () => updateApi?.install());
+ipcMain.handle("updater:openReleases", () => shell.openExternal("https://github.com/PiyushAnand2006/EmberLing/releases/latest"));
 
 ipcMain.handle("providers:fetchModels", async (_e, { providerId, apiKey, baseUrl }) => {
   try {

@@ -60,6 +60,12 @@ declare global {
   files: {
     openViewer(filePath: string): Promise<boolean>;
   };
+  updater: {
+    check(): Promise<{ ok: boolean; current: string; latest?: string; updateAvailable?: boolean; state?: string; portable: boolean; error?: string }>;
+    install(): void;
+    openReleases(): Promise<void>;
+    onStatus(handler: (payload: { state: "downloading" | "ready" | "available" | "error"; version?: string; percent?: number; portable?: boolean; message?: string }) => void): () => void;
+  };
     onNavigate(handler: (hash: string) => void): () => void;
     onFilesDropped(handler: (files: string[]) => void): () => void;
     onSettingsPush(handler: (settings: any) => void): () => void;
