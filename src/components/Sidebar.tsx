@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useApp } from "../state";
+import { t } from "../i18n";
 import { PopoverMenu } from "./Menu";
 import { timeLabel } from "./ChatView";
 import { LogoMark } from "./Brand";
@@ -21,6 +22,7 @@ import {
 export function Sidebar() {
   const app = useApp();
   const { conversations, activeConversationId, settings } = app;
+  const lang = settings.language || "en";
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -50,6 +52,20 @@ export function Sidebar() {
       icon: <IconPin size={13} />,
       onClick: () =>
         app.setConversations((list) => list.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c))),
+    },
+    {
+      label: "Export chat (markdown)",
+      onClick: async () => {
+        const conv = app.conversations.find((c) => c.id === id);
+        if (!conv) return;
+        const md = [
+          `# ${conv.title}`,
+          `_Exported ${new Date().toLocaleString()} from Emberling_`,
+          "",
+          ...conv.messages.map((m) => `**${m.role === "user" ? "You" : "Emberling"}** (${new Date(m.ts).toLocaleString()})\n\n${m.content || (m.voice ? "[voice message]" : "[no text]")}`),
+        ].join("\n\n---\n\n");
+        await window.emberling.dialog.saveExport({ defaultPath: `${(conv.title || "chat").replace(/[^\w-]+/g, "-").slice(0, 40)}.md`, content: md });
+      },
     },
     {
       label: conversations.find((c) => c.id === id)?.muted ? "Unmute" : "Mute",
@@ -126,25 +142,25 @@ export function Sidebar() {
 
       <button className="sidebar-new-chat" onClick={newChat}>
         <IconPencil size={14} />
-        <span className="sidebar-label">New chat</span>
+        <span className="sidebar-label">{t(lang, "newChat")}</span>
       </button>
 
       <div className="sidebar-search">
         <IconSearch size={13} />
-        <input placeholder="Search chats" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input placeholder={t(lang, "searchChats")} value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
 
       <div className="sidebar-conversations">
         {pinned.length > 0 && (
           <>
             <div className="sidebar-section-title">
-              <span className="sidebar-label">Pinned</span>
+              <span className="sidebar-label">{t(lang, "pinned")}</span>
             </div>
             {pinned.map(row)}
           </>
         )}
         <div className="sidebar-section-title">
-          <span className="sidebar-label">Chats</span>
+          <span className="sidebar-label">{t(lang, "chats")}</span>
         </div>
         {rest.length === 0 && (
           <div className="sidebar-label" style={{ padding: "8px 10px", fontSize: 12, color: "var(--cursor-text-quaternary)" }}>
@@ -157,23 +173,27 @@ export function Sidebar() {
       <div className="sidebar-footer">
         <button className="footer-row" onClick={() => app.navigate({ kind: "bots" })}>
           <IconBot size={15} />
-          <span className="sidebar-label">Bots</span>
+          <span className="sidebar-label">{t(lang, "bots")}</span>
+        </button>
+        <button className="footer-row" onClick={() => app.navigate({ kind: "contacts" })}>
+          <IconBrain size={15} />
+          <span className="sidebar-label">Contacts</span>
         </button>
         <button className="footer-row" onClick={() => app.navigate({ kind: "memories" })}>
           <IconBrain size={15} />
-          <span className="sidebar-label">Memories</span>
+          <span className="sidebar-label">{t(lang, "memories")}</span>
         </button>
         <button className="footer-row" onClick={() => app.navigate({ kind: "automations" })}>
           <IconClock size={15} />
-          <span className="sidebar-label">Automations</span>
+          <span className="sidebar-label">{t(lang, "automations")}</span>
         </button>
         <button className="footer-row" onClick={() => app.navigate({ kind: "integrations" })}>
           <IconPlug size={15} />
-          <span className="sidebar-label">Integrations</span>
+          <span className="sidebar-label">{t(lang, "integrations")}</span>
         </button>
         <button className="footer-row" onClick={() => app.navigate({ kind: "settings" })}>
           <IconSettings size={15} />
-          <span className="sidebar-label">Settings</span>
+          <span className="sidebar-label">{t(lang, "settings")}</span>
         </button>
       </div>
     </div>

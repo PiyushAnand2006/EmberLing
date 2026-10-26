@@ -7,6 +7,30 @@ import { DotlingFace, DOTLING_FACES } from "../components/Brand";
 const EMOJIS = ["🤖", "🧠", "🛠️", "📊", "✍️", "🔬", "🎨", "💼", "🗺️", "🎧", "🌱", "⚡"];
 const COLORS = ["#126fd4", "#0d9655", "#7442d1", "#d2550a", "#c82532", "#0d9381", "#c82779", "#86592e"];
 
+// Block B12: pick which installed skills this bot follows
+function SkillPicker({ selected, onToggle }: { selected: string[]; onToggle: (id: string) => void }) {
+  const [skills, setSkills] = useState<any[]>([]);
+  useEffect(() => {
+    window.emberling.skills.list().then(setSkills);
+  }, []);
+  if (!skills.length)
+    return (
+      <div style={{ fontSize: 12, color: "var(--cursor-text-quaternary)" }}>
+        No skills installed yet — record one with 🎓 Learn from demonstration, or the agent can save procedures it learns.
+      </div>
+    );
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {skills.map((s) => (
+        <button key={s.id} className={`chip-btn${selected.includes(s.id) ? " primary" : ""}`} style={selected.includes(s.id) ? { borderColor: "var(--cursor-accent)", color: "var(--cursor-text-primary)" } : undefined} onClick={() => onToggle(s.id)}>
+          {selected.includes(s.id) ? "✓ " : ""}
+          {s.name} {s.steps?.length ? `(${s.steps.length} steps)` : ""}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PublishControls({ botId }: { botId: string }) {
   const { toast } = useApp();
   const [state, setState] = useState<{ url?: string; access?: string } | null>(null);
@@ -210,6 +234,40 @@ function BotEditor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
             </button>
           </div>
 
+          {/* Block B12: skills installed onto this bot */}
+          <div style={{ margin: "14px 0 8px", fontSize: 12, color: "var(--cursor-text-tertiary)" }}>Skills — replayable procedures this bot follows</div>
+          <SkillPicker selected={draft.skills || []} onToggle={(id) => {
+            const cur = draft.skills || [];
+            setDraft({ ...draft, skills: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] });
+          }} />
+
+          {/* Block C: team members */}
+          {draft.team && (
+            <>
+              <div style={{ margin: "14px 0 8px", fontSize: 12, color: "var(--cursor-text-tertiary)" }}>Team members (one per line: Name — owner/member)</div>
+              <textarea
+                className="text-input"
+                style={{ width: "100%", minHeight: 60, resize: "vertical", fontFamily: "var(--cursor-font-family-mono)", fontSize: 12 }}
+                placeholder={"Alice — owner\nBob — member"}
+                value={(draft.members || []).map((m) => `${m.name} — ${m.role}`).join("\n")}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    members: e.target.value
+                      .split("\n")
+                      .map((l) => l.trim())
+                      .filter(Boolean)
+                      .map((l) => {
+                        const [name, role] = l.split(/—|--|-/).map((s) => s.trim());
+                        return { name: name || "", role: role === "owner" ? ("owner" as const) : ("member" as const) };
+                      })
+                      .filter((m) => m.name),
+                  })
+                }
+              />
+            </>
+          )}
+
           <div style={{ margin: "14px 0 8px", fontSize: 12, color: "var(--cursor-text-tertiary)" }}>Sharing</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -278,6 +336,8 @@ export function BotsScreen() {
       face: "orby",
       instructions: "",
       knowledge: [],
+      skills: [],
+      members: team ? [{ name: "You", role: "owner" as const }] : [],
       createdAt: Date.now(),
       team,
     });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useApp, uid } from "../state";
 import type { Automation } from "../types";
 import { IconPlus, IconTrash, IconClock } from "../components/Icons";
@@ -142,7 +142,91 @@ export function AutomationsScreen() {
           ))}
         </div>
         {editing && <AutomationEditor automation={editing} onClose={() => setEditing(null)} />}
+        <CalendarPanel />
       </div>
     </div>
+  );
+}
+
+/* ---------------- Block B16: local calendar ---------------- */
+function CalendarPanel() {
+  const { toast } = useApp();
+  const [events, setEvents] = useState<any[]>([]);
+  const [draft, setDraft] = useState({ title: "", start: "", location: "", notes: "" });
+
+  const refresh = async () => setEvents(((await window.emberling.calendar.list()) || []).slice(0, 30));
+  React.useEffect(() => {
+    refresh();
+  }, []);
+
+  const add = async () => {
+    if (!draft.title.trim() || !draft.start) return;
+    const res = await window.emberling.calendar.upsert({ title: draft.title.trim(), start: new Date(draft.start).toISOString(), location: draft.location, notes: draft.notes });
+    if (res.ok) {
+      setDraft({ title: "", start: "", location: "", notes: "" });
+      toast("Event added — the agent sees it with calendar_list");
+      refresh();
+    }
+  };
+
+  return (
+    <>
+      <h2 style={{ marginTop: 28 }}>Calendar</h2>
+      <div className="screen-sub">Local events the agent can read and create (calendar_list / calendar_add). Import and export work with .ics files.</div>
+      <div className="settings-group">
+        <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input className="text-input" style={{ flex: 2, minWidth: 160 }} placeholder="Event title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            <input className="text-input" style={{ flex: 1, minWidth: 190 }} type="datetime-local" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} />
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input className="text-input" style={{ flex: 1, minWidth: 140 }} placeholder="Location (optional)" value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value })} />
+            <input className="text-input" style={{ flex: 2, minWidth: 180 }} placeholder="Notes (optional)" value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+            <button className="btn primary" onClick={add} disabled={!draft.title.trim() || !draft.start}>
+              <IconPlus size={13} /> Add event
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="settings-group">
+        {events.length === 0 && <div className="list-item" style={{ color: "var(--cursor-text-quaternary)" }}>No upcoming events.</div>}
+        {events.map((e) => (
+          <div className="list-item" key={e.id}>
+            <div className="li-body">
+              <div className="li-title">{e.title}</div>
+              <div className="li-sub">
+                {new Date(e.start).toLocaleString()} {e.location ? `· ${e.location}` : ""}
+              </div>
+            </div>
+            <button className="icon-btn" onClick={async () => { await window.emberling.calendar.remove(e.id); refresh(); }}>
+              <IconTrash size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button
+          className="btn"
+          onClick={async () => {
+            const res = await window.emberling.calendar.exportIcs();
+            if (res.ok) toast("Calendar exported");
+          }}
+        >
+          ⇪ Export .ics
+        </button>
+        <button
+          className="btn"
+          onClick={async () => {
+            const res = await window.emberling.calendar.importIcs();
+            if (res.ok) {
+              toast(`Imported ${(res as any).imported} events`);
+              refresh();
+            }
+          }}
+        >
+          ⇩ Import .ics
+        </button>
+      </div>
+    </>
   );
 }

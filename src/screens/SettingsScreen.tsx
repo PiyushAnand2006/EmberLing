@@ -2,12 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useApp } from "../state";
 import type { ProviderInfo } from "../types";
 import { BUBBLE_COLORS } from "../types";
-import { IconSettings, IconBell, IconBrain, IconBot, IconKey, IconShield, IconMic, IconInfo, IconCheck, IconPlug, IconClock } from "../components/Icons";
+import { IconSettings, IconBell, IconBrain, IconBot, IconKey, IconShield, IconMic, IconInfo, IconCheck, IconPlug, IconClock, IconSparkles } from "../components/Icons";
 import { LogoMark, Wordmark } from "../components/Brand";
 import { LANGUAGES } from "../i18n";
 import type { UsageRow, McpConfig } from "../types";
 
-type Section = "general" | "account" | "notifications" | "appearance" | "voice" | "mcp" | "usage" | "about";
+type Section = "general" | "account" | "notifications" | "appearance" | "voice" | "mcp" | "plugins" | "usage" | "about";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <IconSettings size={14} /> },
@@ -16,6 +16,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "appearance", label: "Appearance", icon: <IconBrain size={14} /> },
   { id: "voice", label: "Voice", icon: <IconMic size={14} /> },
   { id: "mcp", label: "MCP servers", icon: <IconPlug size={14} /> },
+  { id: "plugins", label: "Plugins", icon: <IconSparkles size={14} /> },
   { id: "usage", label: "Usage", icon: <IconClock size={14} /> },
   { id: "about", label: "About", icon: <IconInfo size={14} /> },
 ];
@@ -449,6 +450,8 @@ export function SettingsScreen() {
 
         {section === "mcp" && <McpSection />}
 
+        {section === "plugins" && <PluginsSection />}
+
         {section === "usage" && <UsageSection />}
 
         {section === "about" && (
@@ -566,11 +569,231 @@ function McpSection() {
       <div style={{ fontSize: 12, color: "var(--cursor-text-quaternary)" }}>
         Connected tools appear to the agent automatically (named mcp_server_tool) and respect the approval mode.
       </div>
+      <McpMarketplace configs={configs} onDone={refresh} />
+      {configs.map((c) => (
+        <McpServerControls key={c.name} config={c} connected={!!connected.find((x) => x.name === c.name)} onDone={refresh} />
+      ))}
+    </>
+  );
+}
+
+/* Block B13: one-click marketplace + per-server instructions/tool toggles/restart */
+function McpMarketplace({ configs, onDone }: { configs: McpConfig[]; onDone: () => void }) {
+  const { toast } = useApp();
+  const [catalog, setCatalog] = useState<any[]>([]);
+  const [placeholderValue, setPlaceholderValue] = useState("");
+  const [busy, setBusy] = useState("");
+  React.useEffect(() => {
+    window.emberling.mcpMarketplace.list().then(setCatalog);
+  }, []);
+  return (
+    <div className="settings-group">
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+        <div className="row-label">Marketplace — one-click install</div>
+        {catalog.some((m) => m.argsTemplate.some((a: string) => a.includes("{{dir}}"))) && (
+          <input className="text-input" style={{ width: "100%" }} placeholder="Directory for filesystem server (optional)" value={placeholderValue} onChange={(e) => setPlaceholderValue(e.target.value)} />
+        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {catalog.map((m) => {
+            const installed = configs.some((c) => c.name === m.name);
+            return (
+              <button
+                key={m.name}
+                className="chip-btn"
+                title={m.desc}
+                disabled={busy === m.name || installed}
+                style={installed ? { opacity: 0.55 } : undefined}
+                onClick={async () => {
+                  setBusy(m.name);
+                  const res = await window.emberling.mcpMarketplace.add({ name: m.name, placeholderValue });
+                  setBusy("");
+                  if (res.ok) {
+                    toast(`${m.label} connected`);
+                    onDone();
+                  } else toast(res.error || "install failed");
+                }}
+              >
+                {installed ? "✓ " : "+ "}
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function McpServerControls({ config, connected, onDone }: { config: McpConfig; connected: boolean; onDone: () => void }) {
+  const { toast } = useApp();
+  const [instructions, setInstructions] = useState(config.instructions || "");
+  const [tools, setTools] = useState<{ name: string; description: string }[]>([]);
+  React.useEffect(() => {
+    if (connected) window.emberling.mcp.tools().then((all) => setTools(all.filter((t) => t.server === config.name)));
+  }, [connected, config.name]);
+  return (
+    <div className="settings-group">
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <strong style={{ flex: 1 }}>{config.name}</strong>
+          <span className={`badge${connected ? " ok" : " warn"}`}>{connected ? "connected" : "offline"}</span>
+        </div>
+        {connected && tools.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {tools.map((t) => {
+              const disabled = (config.disabledTools || []).includes(t.name);
+              return (
+                <button
+                  key={t.name}
+                  className="chip-btn"
+                  title={t.description}
+                  style={disabled ? { opacity: 0.5 } : { borderColor: "rgba(63,162,102,0.5)" }}
+                  onClick={async () => {
+                    await window.emberling.mcpMarketplace.setToolEnabled({ server: config.name, tool: t.name, enabled: disabled });
+                    onDone();
+                  }}
+                >
+                  {disabled ? "⃠ " : "✓ "}
+                  {t.name.replace(`mcp_${config.name}_`, "")}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <textarea
+          className="text-input"
+          style={{ width: "100%", minHeight: 50, resize: "vertical", fontSize: 12 }}
+          placeholder="Custom instructions for the agent on how to use this server (optional)"
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn"
+            onClick={async () => {
+              await window.emberling.mcpMarketplace.setInstructions({ name: config.name, instructions });
+              toast("Instructions saved");
+            }}
+          >
+            Save instructions
+          </button>
+          <button
+            className="btn"
+            onClick={async () => {
+              const res = await window.emberling.mcpMarketplace.restart(config.name);
+              toast(res.ok ? `${config.name} restarted` : res.error || "restart failed");
+              onDone();
+            }}
+          >
+            ↻ Restart
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Block B11: Plugins ---------------- */
+function PluginsSection() {
+  const { toast } = useApp();
+  const [plugins, setPlugins] = useState<any[]>([]);
+
+  const refresh = async () => setPlugins((await window.emberling.plugins.list()) || []);
+  React.useEffect(() => {
+    refresh();
+  }, []);
+
+  return (
+    <>
+      <h2>Plugins</h2>
+      <div className="screen-sub">
+        Capability plugins inject keyless agent tools. Built-ins run on free public endpoints; install more from manifest JSON files (fetch-based tools only, args are validated).
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <button
+          className="btn"
+          onClick={async () => {
+            const res = await window.emberling.plugins.installFile();
+            if (res.ok) {
+              toast(`Plugin installed — tools: ${(res as any).tools?.join(", ")}`);
+              refresh();
+            } else if (res.error !== "cancelled") toast(res.error || "install failed");
+          }}
+        >
+          ⬆ Install from manifest…
+        </button>
+      </div>
+      <div className="settings-group">
+        {plugins.length === 0 && <div className="list-item" style={{ color: "var(--cursor-text-quaternary)" }}>No plugins.</div>}
+        {plugins.map((p) => (
+          <div className="list-item" key={p.id}>
+            <button className={`toggle${p.enabled ? " on" : ""}`} onClick={async () => { await window.emberling.plugins.toggle({ id: p.id, enabled: !p.enabled }); refresh(); }} />
+            <div className="li-body">
+              <div className="li-title">
+                {p.name} {p.builtin && <span className="badge neutral">built-in</span>}
+                {!p.builtin && <span className="badge neutral">installed</span>}
+              </div>
+              <div className="li-sub">
+                {p.description} · tools: {(p.tools || []).map((t: any) => t.name).join(", ")}
+              </div>
+            </div>
+            {!p.builtin && (
+              <button className="icon-btn" onClick={async () => { await window.emberling.plugins.uninstall(p.id); refresh(); }}>
+                🗑
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </>
   );
 }
 
 /* ---------------- Usage ---------------- */
+// Emberling Plus: offline HMAC-signed license keys (the clone itself is free;
+// a key just activates the Plus tier — the original's payments surface).
+function PlusPlanControl() {
+  const { settings, setSettings, toast } = useApp();
+  const [key, setKey] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [holder, setHolder] = useState<string>("");
+
+  React.useEffect(() => {
+    window.emberling.integrations.licenseStatus().then((s) => {
+      if (s?.holder) setHolder(s.holder);
+    });
+  }, []);
+
+  if (settings.plus) {
+    return <span className="badge ok">Emberling Plus{holder ? ` — ${holder}` : ""} · everything unlocked</span>;
+  }
+  return (
+    <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <input className="text-input" style={{ width: 260 }} placeholder="License key (PLUS-…)" value={key} onChange={(e) => setKey(e.target.value)} />
+      <button
+        className="btn primary"
+        disabled={checking || !key.trim()}
+        onClick={async () => {
+          setChecking(true);
+          const res = await window.emberling.integrations.licenseActivate(key.trim());
+          setChecking(false);
+          if (res.ok) {
+            setSettings((s) => ({ ...s, plus: true, plusKeyHolder: res.name || "supporter" }));
+            setHolder(res.name || "supporter");
+            setKey("");
+            toast(`Emberling Plus activated — thanks ${res.name || "supporter"}!`);
+          } else toast(res.error || "invalid key");
+        }}
+      >
+        {checking ? "Checking…" : "Activate"}
+      </button>
+      <span style={{ fontSize: 11, color: "var(--cursor-text-quaternary)", maxWidth: 180 }}>
+        The app is fully free — keys only unlock the Plus badge.
+      </span>
+    </span>
+  );
+}
+
 function UsageSection() {
   const { settings, setSettings } = useApp();
   const [usage, setUsage] = React.useState<UsageRow[]>([]);
@@ -600,17 +823,7 @@ function UsageSection() {
         </div>
         <div className="settings-row">
           <div className="row-label">Plan</div>
-          {settings.plus ? (
-            <span className="badge ok">Emberling Plus — everything unlocked</span>
-          ) : (
-            <button
-              className="btn primary"
-              onClick={() => setSettings((s) => ({ ...s, plus: true }))}
-              title="Everything in this clone is already free — this just unlocks the Plus badge"
-            >
-              ✨ Get Emberling Plus (free)
-            </button>
-          )}
+          <PlusPlanControl />
         </div>
       </div>
       <div className="settings-group">

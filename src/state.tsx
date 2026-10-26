@@ -34,6 +34,7 @@ export type Route =
   | { kind: "bots" }
   | { kind: "memories" }
   | { kind: "automations" }
+  | { kind: "contacts" }
   | { kind: "integrations" }
   | { kind: "onboarding" };
 

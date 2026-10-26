@@ -9,6 +9,7 @@ import { BotsScreen } from "./screens/BotsScreen";
 import { MemoriesScreen } from "./screens/MemoriesScreen";
 import { AutomationsScreen } from "./screens/AutomationsScreen";
 import { IntegrationsScreen } from "./screens/IntegrationsScreen";
+import { ContactsScreen } from "./screens/ContactsScreen";
 import { Onboarding } from "./screens/Onboarding";
 import { PopoverMenu } from "./components/Menu";
 import { IconMinimize, IconMaximize, IconX, IconBot, IconCheck, IconChevronDown } from "./components/Icons";
@@ -414,7 +415,44 @@ function ChatScreen() {
         }
       };
       rec.start();
-      // record until the user clicks stop (or 30s cap)
+      // hands-free: auto-stop after ~1.2 s of silence (min 1 s, hard cap 30 s).
+      // This is what makes voice mode feel like a call rather than a memo.
+      const audioCtx = new AudioContext();
+      const src = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      let stopped = false;
+      let spoke = false;
+      let quietSince = 0;
+      const tick = () => {
+        if (stopped) return;
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+        if (peak > 12) {
+          spoke = true;
+          quietSince = 0;
+        } else if (spoke) {
+          quietSince += 100;
+        }
+        if ((spoke && quietSince >= 1200) || rec.state === "inactive") {
+          stopped = true;
+          audioCtx.close().catch(() => {});
+          if (rec.state !== "inactive") rec.stop();
+          return;
+        }
+        setTimeout(tick, 100);
+      };
+      setTimeout(tick, 900);
+      setTimeout(() => {
+        if (!stopped) {
+          stopped = true;
+          audioCtx.close().catch(() => {});
+          if (rec.state !== "inactive") rec.stop();
+        }
+      }, 30000);
       const stop = () => {
         if (rec.state !== "inactive") rec.stop();
       };
@@ -469,8 +507,19 @@ function ChatScreen() {
           return;
         }
         const atts = shots.map((url, i) => ({ id: url, name: `demo-step-${i + 1}.png`, size: 0, kind: "image" as const, url }));
-        send("The recording is finished. Learn the task from it.", atts);
-        toast(`Demonstration captured (${shots.length} frames)`);
+        // Block B12/C: the demonstration is saved as a replayable skill AND
+        // sent to the active chat so the agent learns it immediately.
+        const skill = {
+          name: `Demonstrated procedure ${new Date().toLocaleString()}`,
+          instructions:
+            "Replay the task shown in the attached demonstration frames, in order. Each frame is one step of the procedure the user performed on screen.",
+          steps: shots.map((_, i) => `Follow demo-step-${i + 1}.png: perform the visible state transition`),
+          tools: ["screen_screenshot", "screen_click", "screen_scroll", "type_text", "focus_window"],
+          source: "teach",
+        };
+        await window.emberling.skills.upsert(skill);
+        send("The recording is finished. Learn the task from it and remember it as a skill.", atts);
+        toast(`Demonstration captured (${shots.length} frames) — saved as a skill`);
       } else {
         const res = await window.emberling.teach.start(4000);
         if (res.ok) {
@@ -663,15 +712,17 @@ function Shell() {
       ? "Settings"
       : route.kind === "bots"
         ? "Bots"
-        : route.kind === "memories"
-          ? "Memories"
-          : route.kind === "automations"
-            ? "Automations"
-            : route.kind === "integrations"
-              ? "Integrations"
-              : route.kind === "onboarding"
-                ? "Welcome to Emberling"
-                : conversation?.title || "Emberling";
+        : route.kind === "contacts"
+          ? "Contacts"
+          : route.kind === "memories"
+            ? "Memories"
+            : route.kind === "automations"
+              ? "Automations"
+              : route.kind === "integrations"
+                ? "Integrations"
+                : route.kind === "onboarding"
+                  ? "Welcome to Emberling"
+                  : conversation?.title || "Emberling";
 
   let content: React.ReactNode;
   switch (route.kind) {
@@ -680,6 +731,9 @@ function Shell() {
       break;
     case "bots":
       content = <BotsScreen />;
+      break;
+    case "contacts":
+      content = <ContactsScreen />;
       break;
     case "memories":
       content = <MemoriesScreen />;
