@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useApp } from "../state";
 import type { Attachment } from "../types";
 import { PopoverMenu } from "./Menu";
+import { RichEditor } from "./RichEditor";
 import { IconPaperclip, IconMic, IconSend, IconStop, IconX, IconCheck, IconShield, IconSparkles, IconChevronDown } from "./Icons";
 
 const APPROVAL_LABELS: Record<string, string> = {
@@ -46,7 +47,7 @@ export function Composer({
   const [editMessageId, setEditMessageId] = useState<string | undefined>(undefined);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<{ chain: () => any; commands: any } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordTimer = useRef<number | null>(null);
@@ -87,16 +88,9 @@ export function Composer({
       }
       setText(prefill.text);
       setEditMessageId(prefill.editMessageId);
-      taRef.current?.focus();
+      editorRef.current?.commands?.focus?.("end");
     }
   }, [prefill?.nonce]);
-
-  useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
-  }, [text]);
 
   useEffect(() => {
     const handler = async (files: string[]) => {
@@ -116,45 +110,7 @@ export function Composer({
   const creds = settings.providers[settings.activeProvider];
   const activeModel = creds?.model || activeProvider?.models[0]?.id || "";
   const activeBot = bots.find((b) => b.id === conversation?.botId);
-
-  const wrapSelection = (before: string, after = before, placeholder = "text") => {
-    const ta = taRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = text.slice(start, end) || placeholder;
-    const next = text.slice(0, start) + before + selected + after + text.slice(end);
-    setText(next);
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
-  };
-
-  const prefixLine = (prefix: string) => {
-    const ta = taRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-    const next = text.slice(0, lineStart) + prefix + text.slice(lineStart);
-    setText(next);
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + prefix.length, start + prefix.length);
-    });
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    } else if (e.key === "/" && (text === "" || /\s$/.test(text))) {
-      setSlashOpen(true);
-      setSlashFilter("");
-    } else if (slashOpen && e.key === "Escape") {
-      setSlashOpen(false);
-    }
-  };
+  const rich = editorRef;
 
   const applySlash = (insert: string) => {
     setSlashOpen(false);
@@ -164,12 +120,7 @@ export function Composer({
       return;
     }
     setText((t) => t.replace(/\/\w*$/, "") + insert);
-    requestAnimationFrame(() => {
-      const ta = taRef.current;
-      ta?.focus();
-      const pos = (ta?.value || "").length;
-      ta?.setSelectionRange(pos, pos);
-    });
+    requestAnimationFrame(() => editorRef.current?.commands?.focus?.("end"));
   };
 
   const pickFiles = async () => {
@@ -271,45 +222,45 @@ export function Composer({
             ))}
           </div>
         )}
-        <textarea
-          ref={taRef}
-          className="composer-input"
-          placeholder={activeBot ? `Message ${activeBot.name}…` : "Ask anything"}
+        <RichEditor
           value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            const m = e.target.value.match(/\/(\w*)$/);
-            if (m && (e.target.value.slice(0, -m[0].length) === "" || /\s$/.test(e.target.value.slice(0, -m[0].length)))) {
+          onReady={(editor) => (editorRef.current = editor)}
+          onChange={(md) => {
+            setText(md);
+            const m = md.match(/\/(\w*)$/);
+            if (m && (md.slice(0, -m[0].length) === "" || /\s$/.test(md.slice(0, -m[0].length)))) {
               setSlashOpen(true);
               setSlashFilter(m[1]);
             } else setSlashOpen(false);
           }}
-          onKeyDown={onKeyDown}
+          placeholder={activeBot ? `Message ${activeBot.name}…` : "Ask anything"}
+          onEnter={send}
+          autoFocus
         />
         <div className="composer-toolbar">
           <button className="icon-btn" title="Attach files" onClick={pickFiles}>
             <IconPaperclip size={15} />
           </button>
           <span style={{ width: 1, height: 16, background: "var(--cursor-stroke-quaternary)" }} />
-          <button className="icon-btn" title="Bold" onClick={() => wrapSelection("**")}>
+          <button className="icon-btn" title="Bold" onClick={() => rich.current?.chain().focus().toggleBold().run()}>
             <b style={{ fontSize: 12 }}>B</b>
           </button>
-          <button className="icon-btn" title="Italic" onClick={() => wrapSelection("*")}>
+          <button className="icon-btn" title="Italic" onClick={() => rich.current?.chain().focus().toggleItalic().run()}>
             <i style={{ fontSize: 12 }}>i</i>
           </button>
-          <button className="icon-btn" title="Inline code" onClick={() => wrapSelection("`")}>
+          <button className="icon-btn" title="Inline code" onClick={() => rich.current?.chain().focus().toggleCode().run()}>
             <code style={{ fontSize: 11 }}>{"</>"}</code>
           </button>
-          <button className="icon-btn" title="Link" onClick={() => wrapSelection("[", "](https://)", "label")}>
+          <button className="icon-btn" title="Link" onClick={() => rich.current?.chain().focus().setLink({ href: "https://" }).run()}>
             <span style={{ fontSize: 13 }}>🔗</span>
           </button>
-          <button className="icon-btn" title="Bulleted list" onClick={() => prefixLine("- ")}>
+          <button className="icon-btn" title="Bulleted list" onClick={() => rich.current?.chain().focus().toggleBulletList().run()}>
             <span style={{ fontSize: 13 }}>•—</span>
           </button>
-          <button className="icon-btn" title="Numbered list" onClick={() => prefixLine("1. ")}>
+          <button className="icon-btn" title="Numbered list" onClick={() => rich.current?.chain().focus().toggleOrderedList().run()}>
             <span style={{ fontSize: 12, fontFamily: "var(--cursor-font-family-mono)" }}>1.</span>
           </button>
-          <button className="icon-btn" title="Code block" onClick={() => wrapSelection("\n```\n", "\n```\n", "code")}>
+          <button className="icon-btn" title="Code block" onClick={() => rich.current?.chain().focus().toggleCodeBlock().run()}>
             <span style={{ fontSize: 11, fontFamily: "var(--cursor-font-family-mono)" }}>{"{ }"}</span>
           </button>
 
@@ -329,18 +280,33 @@ export function Composer({
                       label: `${m.name} — ${m.note}`,
                       modelId: m.id,
                     })),
+                    // discovered models: keep the in-chat menu fast — cap the
+                    // inline list and point to Settings for the full catalog
                     ...((creds?.models as string[]) || [])
                       .filter((id: string) => !activeProvider.models.some((m) => m.id === id))
+                      .slice(0, 60)
                       .map((id: string) => ({ label: id, modelId: id })),
-                  ].map((m) => ({
-                    label: m.label,
-                    icon: creds?.model === m.modelId ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
-                    onClick: () =>
-                      setSettings((s) => ({
-                        ...s,
-                        providers: { ...s.providers, [s.activeProvider]: { ...(creds || {}), apiKey: creds?.apiKey || "", model: m.modelId } },
-                      })),
-                  }))
+                    ...((creds?.models as string[]) || []).length > 60
+                      ? [{ label: `… ${((creds?.models as string[]) || []).length - 60} more — pick in Settings → General`, modelId: "" }]
+                      : [],
+                  ]
+                    .map((m) =>
+                      m.modelId
+                        ? {
+                            label: m.label,
+                            icon: creds?.model === m.modelId ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
+                            onClick: () =>
+                              setSettings((s) => ({
+                                ...s,
+                                providers: { ...s.providers, [s.activeProvider]: { ...(creds || {}), apiKey: creds?.apiKey || "", model: m.modelId } },
+                              })),
+                          }
+                        : {
+                            label: m.label,
+                            icon: <span style={{ width: 13 }} />,
+                            onClick: () => {},
+                          }
+                    )
                 : [{ label: "Add a provider in Settings → General", onClick: () => {} }]
             }
           />

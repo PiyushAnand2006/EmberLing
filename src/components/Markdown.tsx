@@ -10,6 +10,8 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
   if (lang === "mermaid") return <Mermaid code={text} />;
   if (lang === "html" || lang === "preview") return <HtmlPreview code={text} />;
   if (lang === "chart") return <Chart code={text} />;
+  if (lang === "graph") return <GraphBlock code={text} />;
+  if (lang === "three") return <ThreeBlock code={text} />;
   if (lang === "clip") return <ClipPlayer code={text} />;
   return (
     <div className="code-block">
@@ -80,6 +82,11 @@ function HtmlPreview({ code }: { code: string }) {
   }, [code]);
   return (
     <div className="photo-card" style={{ border: "1px solid var(--cursor-stroke-quaternary)", borderRadius: 12, margin: "8px 0", overflow: "hidden", background: "#fff" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 6px", background: "var(--cursor-pane)", borderBottom: "1px solid var(--cursor-stroke-quaternary)" }}>
+        <button className="btn subtle" style={{ fontSize: 11, padding: "2px 10px" }} onClick={() => window.emberling.canvas.open(code)} title="Open in a separate window">
+          ⧉ Open in window
+        </button>
+      </div>
       <iframe src={src} title="HTML preview" sandbox="allow-scripts" style={{ width: "100%", height: 260, border: 0, background: "#fff" }} />
     </div>
   );
@@ -96,10 +103,10 @@ function Chart({ code }: { code: string }) {
   const labels = spec.labels || [];
   const data = (spec.data || []).map((n) => Number(n) || 0);
   if (!data.length) return <div className="tool-line" style={{ cursor: "default" }}>chart: no data</div>;
-  const type = spec.type === "pie" || spec.type === "line" ? spec.type : "bar";
+  const type = String(spec.type || "bar");
   const palette = ["#f54e00", "#599ce7", "#3fa266", "#f1b467", "#9386f2", "#b48ead", "#e34671", "#81a1c1"];
 
-  if (type === "pie") {
+  if (type === "pie" || type === "donut") {
     const total = data.reduce((a, b) => a + b, 0) || 1;
     let angle = -Math.PI / 2;
     const slices = data
@@ -129,17 +136,45 @@ function Chart({ code }: { code: string }) {
     );
   }
 
-  if (type === "line") {
+  if (type === "line" || type === "area") {
     const max = Math.max(...data, 1);
     const w = 340, h = 160, pad = 24;
     const pts = data.map((v, i) => `${pad + (i * (w - pad * 2)) / Math.max(1, data.length - 1)},${h - pad - (v / max) * (h - pad * 2)}`);
     return (
       <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 12, margin: "8px 0" }}>
         <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", maxWidth: 380, display: "block" }}>
+          {type === "area" && <polygon points={`${pad},${h - pad} ${pts.join(" ")} ${w - pad},${h - pad}`} fill="rgba(245,78,0,0.22)" />}
           <polyline points={pts.join(" ")} fill="none" stroke="#599ce7" strokeWidth="2.5" />
           {pts.map((p, i) => {
             const [x, y] = p.split(",");
             return <circle key={i} cx={x} cy={y} r="3" fill="#f54e00" />;
+          })}
+        </svg>
+        {labels.length > 0 && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--cursor-text-quaternary)", maxWidth: 380 }}>
+            <span>{labels[0] || ""}</span>
+            <span>{labels[labels.length - 1] || ""}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (type === "scatter") {
+    const xs = (spec as any).x || labels.map((_, i) => i);
+    const w = 340, h = 200, pad = 28;
+    const maxY = Math.max(...data, 1);
+    const maxX = Math.max(...xs.map((v: any) => Number(v) || 0), 1);
+    return (
+      <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 12, margin: "8px 0" }}>
+        <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", maxWidth: 380, display: "block" }}>
+          {[0.25, 0.5, 0.75].map((f) => (
+            <line key={f} x1={pad} y1={pad + f * (h - pad * 2)} x2={w - pad} y2={pad + f * (h - pad * 2)} stroke="rgba(255,255,255,0.08)" />
+          ))}
+          {data.map((v, i) => {
+            const x = pad + ((Number(xs[i]) || 0) / maxX) * (w - pad * 2);
+            const y = h - pad - (v / maxY) * (h - pad * 2);
+            return <circle key={i} cx={x} cy={y} r="4" fill="#f54e00" opacity="0.85" />;
           })}
         </svg>
       </div>
@@ -202,6 +237,140 @@ function ClipPlayer({ code }: { code: string }) {
           {i + 1}/{frames.length}
         </span>
       </div>
+    </div>
+  );
+}
+
+/* ---------- Graph block (cytoscape, Block B20) — nodes/edges network ---------- */
+let cytoscapeReady: Promise<any> | null = null;
+function loadCytoscape() {
+  if (!cytoscapeReady) cytoscapeReady = import("cytoscape");
+  return cytoscapeReady;
+}
+
+function GraphBlock({ code }: { code: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    let cy: any = null;
+    (async () => {
+      try {
+        const spec = JSON.parse(code);
+        if (!Array.isArray(spec.nodes) || !spec.nodes.length) throw new Error("graph needs nodes[]");
+        const cytoscape = await loadCytoscape();
+        if (!alive || !ref.current) return;
+        cy = cytoscape({
+          container: ref.current,
+          elements: [
+            ...spec.nodes.map((n: any) => ({ data: { id: String(n.id), label: String(n.label || n.id) } })),
+            ...(spec.edges || []).map((e: any, i: number) => ({ data: { id: `e${i}`, source: String(e.source), target: String(e.target) } })),
+          ],
+          style: [
+            { selector: "node", style: { "background-color": "#f54e00", label: "data(label)", color: "#f0f0f0", "font-size": 10, "text-valign": "bottom", width: 18, height: 18 } },
+            { selector: "edge", style: { width: 1.5, "line-color": "rgba(255,255,255,0.35)", "target-arrow-color": "rgba(255,255,255,0.35)", "target-arrow-shape": "triangle", "curve-style": "bezier" } },
+          ],
+          layout: { name: "cose", animate: false },
+        });
+        cy.fit(undefined, 20);
+      } catch (e) {
+        alive && setError(String((e as Error).message || e));
+      }
+    })();
+    return () => {
+      alive = false;
+      cy?.destroy();
+    };
+  }, [code]);
+  return (
+    <div className="photo-card" style={{ background: "rgba(0,0,0,0.3)", padding: 6, margin: "8px 0" }}>
+      {error ? <div className="tool-line" style={{ cursor: "default" }}>graph: {error}</div> : <div ref={ref} style={{ width: "100%", height: 240 }} />}
+    </div>
+  );
+}
+
+/* ---------- 3D block (three.js, Block B20) — shape/points scene ---------- */
+let threeReady: Promise<any> | null = null;
+function loadThree() {
+  if (!threeReady) {
+    threeReady = Promise.all([import("three"), import("three/examples/jsm/controls/OrbitControls.js")]).then(([THREE, { OrbitControls }]) => ({ THREE, OrbitControls }));
+  }
+  return threeReady;
+}
+
+function ThreeBlock({ code }: { code: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    let raf = 0;
+    let cleanup = () => {};
+    (async () => {
+      try {
+        const spec = JSON.parse(code);
+        const { THREE, OrbitControls } = await loadThree();
+        if (!alive || !ref.current) return;
+        const width = ref.current.clientWidth || 400;
+        const height = 260;
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(width, height);
+        ref.current.appendChild(renderer.domElement);
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 100);
+        camera.position.set(0, 1.6, 4.2);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const key = new THREE.DirectionalLight(0xff8a4d, 1.4);
+        key.position.set(3, 4, 2);
+        scene.add(key);
+        const color = new THREE.Color(String(spec.color || "#f54e00"));
+        const shape = String(spec.shape || "sphere");
+        const count = Math.min(4000, Math.max(1, Number(spec.count) || 600));
+        if (shape === "points") {
+          const pos = new Float32Array(count * 3);
+          for (let i = 0; i < count; i++) {
+            pos[i * 3] = (Math.random() - 0.5) * 4;
+            pos[i * 3 + 1] = (Math.random() - 0.5) * 3;
+            pos[i * 3 + 2] = (Math.random() - 0.5) * 4;
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+          scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color, size: 0.035 })));
+        } else {
+          const geo =
+            shape === "torus"
+              ? new THREE.TorusGeometry(1.2, 0.45, 24, 96)
+              : shape === "cube"
+                ? new THREE.BoxGeometry(1.8, 1.8, 1.8)
+                : new THREE.SphereGeometry(1.3, 48, 32);
+          scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.15 })));
+        }
+        const animate = () => {
+          if (!alive) return;
+          raf = requestAnimationFrame(animate);
+          scene.rotation.y += 0.004;
+          controls.update();
+          renderer.render(scene, camera);
+        };
+        animate();
+        cleanup = () => {
+          cancelAnimationFrame(raf);
+          renderer.dispose();
+          renderer.domElement.remove();
+        };
+      } catch (e) {
+        alive && setError(String((e as Error).message || e));
+      }
+    })();
+    return () => {
+      alive = false;
+      cleanup();
+    };
+  }, [code]);
+  return (
+    <div className="photo-card" style={{ background: "rgba(0,0,0,0.3)", padding: 6, margin: "8px 0" }}>
+      {error ? <div className="tool-line" style={{ cursor: "default" }}>three: {error}</div> : <div ref={ref} style={{ width: "100%", height: 260, borderRadius: 8 }} />}
     </div>
   );
 }
