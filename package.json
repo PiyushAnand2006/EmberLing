@@ -1,7 +1,7 @@
 {
   "name": "emberling",
   "productName": "Emberling",
-  "version": "0.75.10",
+  "version": "0.75.11",
   "description": "Emberling desktop agent — rebuilt from REA findings, powered by free API providers",
   "main": "electron/main.js",
   "private": true,
