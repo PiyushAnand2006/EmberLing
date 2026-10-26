@@ -93,9 +93,9 @@ const realClick = async (sel, nth = 0) => {
 
 const exists = (sel) => evalJs(`!!document.querySelector(${JSON.stringify(sel)})`);
 
-if (await exists(".empty-state .orb")) {
-  await evalJs(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Skip'))?.click(); true`);
-  await sleep(600);
+if ((await evalJs(`document.querySelector('.titlebar-title')?.textContent || ''`)).includes('Welcome')) {
+  await evalJs(`[...document.querySelectorAll('button')].find(b => /skip/i.test(b.textContent))?.click(); true`);
+  await sleep(700);
 }
 
 // what element is on top at each interesting button location? (overlay audit)
@@ -114,13 +114,13 @@ await test("real click: sidebar collapse chevron", async () => {
 });
 
 await test("real click: footer Settings row", async () => {
-  const r = await realClick(".sidebar-footer .footer-row:nth-child(5)");
+  const r = await realClick(".sidebar-footer .footer-row:nth-child(6)");
   await sleep(400);
   return r.ok && (await exists(".screen-nav"));
 });
 
 await test("real click: settings nav Appearance", async () => {
-  await realClick(".sidebar-footer .footer-row:nth-child(5)");
+  await realClick(".sidebar-footer .footer-row:nth-child(6)");
   await sleep(400);
   const r = await realClick(".screen-nav .nav-row:nth-child(4)");
   await sleep(300);
@@ -148,8 +148,8 @@ await test("real click: suggestion chip fills composer", async () => {
   await realClick(".sidebar-new-chat");
   await sleep(300);
   const r = await realClick(".suggestion-chip");
-  await sleep(300);
-  const val = await evalJs(`document.querySelector('.composer-input')?.value || ''`);
+  await sleep(400);
+  const val = await evalJs(`(document.querySelector('.ProseMirror')?.textContent || document.querySelector('.composer-input')?.value || '')`);
   return r.ok && val.length > 0;
 });
 

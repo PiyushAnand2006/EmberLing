@@ -122,24 +122,26 @@ await test("mermaid diagram renders in chat", async () => {
   return anySvg;
 });
 
-/* 3. Rich composer toolbar wraps selection */
+/* 3. Rich composer toolbar (TipTap): toggle bold, type, expect <strong> */
 await test("rich composer toolbar", async () => {
   await evalJs(`document.querySelector('.sidebar-new-chat')?.click(); true`);
   await sleep(400);
   const btnCount = await evalJs(`[...document.querySelectorAll('.composer-toolbar .icon-btn')].filter(b => ['Bold','Italic','Link','Bulleted list'].includes(b.title)).length`);
-  await send("Runtime.evaluate", { expression: `document.querySelector('.composer-input')?.focus(); true` });
-  await send("Input.insertText", { text: "hello bold" });
-  await evalJs(`(() => { const ta = document.querySelector('.composer-input'); ta.setSelectionRange(6, 10); })(); true`);
   await evalJs(`[...document.querySelectorAll('.composer-toolbar .icon-btn')].find(b => b.title === 'Bold')?.click(); true`);
-  await sleep(200);
-  const wrapped = await evalJs(`document.querySelector('.composer-input')?.value`);
-  log("wrapped: " + JSON.stringify(wrapped));
-  return btnCount >= 4 && String(wrapped).includes("**bold**");
+  await send("Runtime.evaluate", { expression: `document.querySelector('.ProseMirror')?.focus(); true` });
+  await send("Input.insertText", { text: "bold hello" });
+  await sleep(300);
+  const strong = await evalJs(`!!document.querySelector('.ProseMirror strong')`);
+  // restore: clear composer + untoggle bold
+  await evalJs(`[...document.querySelectorAll('.composer-toolbar .icon-btn')].find(b => b.title === 'Bold')?.click(); true`);
+  await evalJs(`document.querySelector('.sidebar-new-chat')?.click(); true`);
+  log("strong rendered: " + strong);
+  return btnCount >= 4 && !!strong;
 });
 
 /* 4-6. Settings sections */
 await test("settings sections (MCP, Usage, Language)", async () => {
-  await evalJs(`document.querySelector('.sidebar-footer .footer-row:nth-child(5)')?.click(); true`);
+  await evalJs(`document.querySelector('.sidebar-footer .footer-row:nth-child(6)')?.click(); true`);
   await sleep(500);
   const rows = await evalJs(`JSON.stringify([...document.querySelectorAll('.screen-nav .nav-row')].map(r => r.textContent.trim()))`);
   log("nav: " + rows);
@@ -149,6 +151,10 @@ await test("settings sections (MCP, Usage, Language)", async () => {
   await evalJs(`document.querySelectorAll('.screen-nav .nav-row')[${mcpIdx}]?.click(); true`);
   await sleep(500);
   const mcpOk = await evalJs(`!!document.querySelector('input[placeholder*="Server name"]')`);
+  const plugIdx = nav.findIndex((t) => t.includes("Plugins"));
+  await evalJs(`document.querySelectorAll('.screen-nav .nav-row')[${plugIdx}]?.click(); true`);
+  await sleep(500);
+  const pluginsOk = await evalJs(`document.body.textContent.includes('Weather') && document.body.textContent.includes('built-in')`);
   const usageIdx = nav.findIndex((t) => t.includes("Usage"));
   await evalJs(`document.querySelectorAll('.screen-nav .nav-row')[${usageIdx}]?.click(); true`);
   await sleep(500);
@@ -157,8 +163,8 @@ await test("settings sections (MCP, Usage, Language)", async () => {
   await evalJs(`document.querySelectorAll('.screen-nav .nav-row')[${genIdx}]?.click(); true`);
   await sleep(400);
   const langOk = await evalJs(`!!document.querySelector('.settings-row option[value="zh-CN"]')`);
-  log("mcp:" + mcpOk + " usage:" + usageOk + " lang:" + langOk);
-  return mcpOk && usageOk && langOk;
+  log("mcp:" + mcpOk + " plugins:" + pluginsOk + " usage:" + usageOk + " lang:" + langOk);
+  return mcpOk && pluginsOk && usageOk && langOk;
 });
 
 console.log(results.join("\n"));

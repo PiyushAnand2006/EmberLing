@@ -226,18 +226,26 @@ Run with `npm test` (launches its own instance). The MCP client additionally has
 
 | Path | What it is |
 |---|---|
-| `electron/main.js` | Windows, tray, IPC, scheduler, usage, teach capture |
+| `electron/main.js` | Windows, tray, IPC, scheduler, usage, teach capture, integrations IPC |
 | `electron/preload.js` | contextBridge surface (`window.emberling`) |
-| `electron/agent.js` | Tool-calling turn loop |
-| `electron/tools.js` | 19 tool defs + dispatch + approval gating |
+| `electron/agent.js` | Tool-calling turn loop (API + text-mode tool protocols) |
+| `electron/tools.js` | 24 tool defs + dispatch + approval gating + remote routing |
 | `electron/shell-runner.js` | Privileged shell execution (only spawn site) |
+| `electron/remote.js` | SSH remote execution — "On its computer" |
+| `electron/integrations/` | GitHub/GitLab/Bitbucket/Azure, Slack, Teams (Graph), iMessage, email (SMTP/IMAP), 1Password |
+| `electron/integration-tools.js` | Section-A + workspace tools dispatched to the agent |
+| `electron/plugins.js` | Plugin registry (built-in weather/places/currency + manifest installs) |
+| `electron/contacts.js` `electron/calendar.js` `electron/skills.js` | Local address book, events + ICS, replayable procedures |
+| `electron/computer-use.js` | Click/scroll/window automation (user32 P/Invoke) |
+| `electron/secure-store.js` | DPAPI-encrypted secrets at rest |
+| `electron/license.js` | Offline HMAC-signed Plus license keys |
 | `electron/web-tools.js` | Keyless search / fetch / photo / video |
 | `electron/providers.js` | Provider registry, streaming, fallback, self-heal, Whisper |
 | `electron/mcp.js` | MCP stdio JSON-RPC client |
 | `electron/publish.js` | LAN hosting for published bots |
 | `electron/store.js` | Debounced JSON persistence in userData |
-| `src/components/` | ChatView, Composer, Sidebar, Markdown (mermaid/chart/html/clip), AttachmentViewers, Menu, Icons, Brand |
-| `src/screens/` | Settings, Bots, Memories, Automations, Integrations, Onboarding |
+| `src/components/` | ChatView, Composer (TipTap), Sidebar, Markdown (mermaid/chart/graph/three/html/clip), AttachmentViewers, Menu, Icons, Brand |
+| `src/screens/` | Settings, Bots, Memories, Automations+Calendar, Contacts, Integrations, Onboarding |
 | `src/styles/tokens.css` | REA-extracted design tokens |
 | `assets/brand/` | App icon SVG, mark, wordmark, Dotling characters |
 | `build/` | Generated icon.ico / icon.png set |
@@ -249,10 +257,20 @@ Run with `npm test` (launches its own instance). The MCP client additionally has
 
 ## Notes & ethics
 
-- Everything stays on your machine: conversations, bots, memories, keys (`%APPDATA%\emberling\*.json`). The only outbound traffic is to the AI provider you configure and keyless public endpoints (DuckDuckGo, Pollinations).
-- Shell commands are the agent's core capability (as in the original) but are user-approved by default, sandboxed to a non-interactive shell with no profile, delivered via a generated temp script file, and tied to the turn's abort signal.
+- Everything stays on your machine: conversations, bots, memories, keys (`%APPDATA%\emberling\*.json`). Integration tokens are DPAPI-encrypted (device-bound). The only outbound traffic is to the AI provider you configure, the services you explicitly connect, and keyless public endpoints (DuckDuckGo, Pollinations, wttr.in, Nominatim, er-api).
+- Shell commands are the agent's core capability (as in the original) but are user-approved by default, sandboxed to a non-interactive shell with no profile, delivered via a generated temp script file, and tied to the turn's abort signal. Remote ("On its computer") execution uses key-based SSH you configure.
 - Published bots are token-gated and can be restricted to localhost.
 - This project exists to document how a shipped agent app is put together. Please use it only where running an AI assistant is permitted, and don't pass it off as the original product.
+
+## By-design exclusions (Block D)
+
+These subsystems of the original are intentionally **not** replicated because they exist to serve the vendor, not the user:
+
+- **Statsig feature flags / A-B experiments** — replaced by local defaults; no remote config, no experiment enrollment.
+- **Sentry + OTLP telemetry pipelines** — removed entirely; errors go to the local console only.
+- **Account-based gating calls home** (machine labels, roster checks, license servers) — Plus licensing is offline-verified HMAC instead.
+
+Everything else from the original is either implemented (see the parity table above), locally re-imagined (Slack/Teams/Email via your own tokens, SSH instead of their cloud VM), or listed honestly as simulated.
 
 ## License
 

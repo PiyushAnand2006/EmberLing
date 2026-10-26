@@ -96,23 +96,33 @@ const hover = async (sel, nth = 0) => {
   return true;
 };
 
-if (await exists(".empty-state .orb")) {
-  await evalJs(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Skip'))?.click(); true`);
-  await sleep(600);
+if ((await evalJs(`document.querySelector('.titlebar-title')?.textContent || ''`)).includes('Welcome')) {
+  await evalJs(`[...document.querySelectorAll('button')].find(b => /skip/i.test(b.textContent))?.click(); true`);
+  await sleep(700);
 }
 
-// model menu item selection changes the chip label
+// model menu item selection changes the model in settings (discovered ids
+// may make the chip label differ from the menu label, so check the store)
 await test("model menu item select (real clicks)", async () => {
+  const before = (await evalJs(`(async () => { const s = await window.emberling.store.get('settings'); return s?.providers?.[s?.activeProvider]?.model || ''; })()`)) || "";
   await realClick(".composer .chip-btn", 0);
-  await sleep(350);
+  await sleep(500);
   if (!(await exists(".menu"))) return false;
-  const before = await evalJs(`window.__emberSettings?.providers?.[window.__emberSettings.activeProvider]?.model`) ?? await evalJs(`document.querySelectorAll('.composer .chip-btn')[0]?.textContent`);
   const itemTexts = JSON.parse(await evalJs(`JSON.stringify([...document.querySelectorAll('.menu .menu-item')].map(m => m.textContent))`));
   if (itemTexts.length < 2) return false;
-  await realClick(".menu .menu-item", 1);
-  await sleep(400);
-  const chipAfter = await evalJs(`document.querySelectorAll('.composer .chip-btn')[0]?.textContent`);
-  return String(chipAfter).trim().length > 0 && String(chipAfter) !== String(before) || /mistral|qwen|openai/i.test(String(chipAfter));
+  // pick a static item whose index differs from the currently-active one
+  let idx = 0;
+  for (let i = 0; i < itemTexts.length; i++) {
+    if (!itemTexts[i].includes("—")) continue;
+    if (!String(before).toLowerCase().includes(itemTexts[i].split(" — ")[0].split("/").pop().toLowerCase().split(":")[0])) {
+      idx = i;
+      break;
+    }
+  }
+  await realClick(".menu .menu-item", idx);
+  await sleep(500);
+  const after = (await evalJs(`(async () => { const s = await window.emberling.store.get('settings'); return s?.providers?.[s?.activeProvider]?.model || ''; })()`)) || "";
+  return !!after && after !== String(before);
 });
 
 // approval menu item select
@@ -152,13 +162,15 @@ await test("conversation row menu pin (real clicks)", async () => {
 // message reaction via hover actions
 await test("message react button (real clicks)", async () => {
   await hover(".msg-row", 0);
+  await sleep(400); // let :hover actions fade in
+  await hover(".msg-actions .icon-btn", 0);
   await sleep(150);
   await realClick(".msg-actions .icon-btn", 0); // smile (react) button
-  await sleep(350);
+  await sleep(450);
   const hasEmojiRow = await exists(".menu .menu-item");
   if (!hasEmojiRow) return false;
   await realClick(".menu .menu-item", 0);
-  await sleep(350);
+  await sleep(450);
   return await evalJs(`!!document.querySelector('.reaction-chip')`);
 });
 
