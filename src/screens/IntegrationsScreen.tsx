@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useApp } from "../state";
-import { Scout } from "../components/Brand";
+import { DotlingFace } from "../components/Brand";
 import { IconCheck } from "../components/Icons";
 
 // Section-A integrations — REAL connections: the agent gets tools against
@@ -13,7 +13,7 @@ export function IntegrationsScreen() {
     <div className="screen">
       <div className="screen-content" style={{ gridColumn: "1 / -1" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Scout size={52} />
+          <DotlingFace face="scout" size={60} />
           <h2 style={{ margin: 0 }}>Integrations</h2>
         </div>
         <div className="screen-sub">

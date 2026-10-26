@@ -6,6 +6,12 @@
 // shared with assets/brand/*.svg; monoline stroke weight matches Icons.tsx.
 import React, { useId } from "react";
 import type { BotFace } from "../types";
+import orby3dUrl from "../../assets/brand/characters/3d/orby.png";
+import scout3dUrl from "../../assets/brand/characters/3d/scout.png";
+import forge3dUrl from "../../assets/brand/characters/3d/forge.png";
+import echo3dUrl from "../../assets/brand/characters/3d/echo.png";
+import tempo3dUrl from "../../assets/brand/characters/3d/tempo.png";
+import sentry3dUrl from "../../assets/brand/characters/3d/sentry.png";
 
 export const BRAND_ORANGE = "#f54e00";
 export const BRAND_ORANGE_SOFT = "#ff6a24";
@@ -331,20 +337,26 @@ export const DOTLING_FACES: { id: BotFace; name: string; role: string }[] = [
   { id: "sentry", name: "Sentry", role: "Security" },
 ];
 
-/** Renders a Dotling by face id; falls back to Orby. */
-export function DotlingFace({ face, size = 36, mood = "idle" }: { face: BotFace; size?: number; mood?: OrbyMood }) {
-  switch (face) {
-    case "scout":
-      return <Scout size={size} />;
-    case "forge":
-      return <Forge size={size} />;
-    case "echo":
-      return <Echo size={size} />;
-    case "tempo":
-      return <Tempo size={size} />;
-    case "sentry":
-      return <Sentry size={size} />;
-    default:
-      return <Orby size={size} mood={mood} />;
-  }
+// The 3D mascot renders (background-removed); aspect 557x395 ≈ 1.41:1.
+const MASCOT_3D_URL: Record<BotFace, string> = {
+  orby: orby3dUrl,
+  scout: scout3dUrl,
+  forge: forge3dUrl,
+  echo: echo3dUrl,
+  tempo: tempo3dUrl,
+  sentry: sentry3dUrl,
+};
+
+/** Renders a Dotling by face id — the 3D mascot art; falls back to Orby.
+ *  Size is the box width; height follows the art's aspect ratio. */
+export function DotlingFace({ face, size = 36 }: { face: BotFace; size?: number }) {
+  return (
+    <img
+      src={MASCOT_3D_URL[face]}
+      width={size}
+      height={Math.round(size / 1.41)}
+      alt={DOTLING_FACES.find((f) => f.id === face)?.name || face}
+      style={{ display: "block", objectFit: "contain", pointerEvents: "none", userSelect: "none" } as React.CSSProperties}
+    />
+  );
 }

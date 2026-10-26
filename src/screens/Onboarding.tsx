@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useApp } from "../state";
 import type { ProviderInfo } from "../types";
 import { IconCheck, IconSparkles } from "../components/Icons";
-import { Orby } from "../components/Brand";
+import { DotlingFace } from "../components/Brand";
 
 function StepProviders({ onDone }: { onDone: () => void }) {
   const { providers, settings, setSettings, toast } = useApp();
@@ -40,7 +40,7 @@ function StepProviders({ onDone }: { onDone: () => void }) {
   return (
     <div style={{ maxWidth: 560, width: "100%" }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 10, filter: "drop-shadow(0 0 26px rgba(245, 78, 0, 0.28))" }}>
-        <Orby size={96} mood="joy" />
+        <DotlingFace face="orby" size={120} />
       </div>
       <h2 style={{ textAlign: "center", margin: "0 0 6px" }}>Meet Emberling</h2>
       <div className="sub" style={{ textAlign: "center", marginBottom: 22, fontSize: 14, color: "var(--cursor-text-tertiary)" }}>

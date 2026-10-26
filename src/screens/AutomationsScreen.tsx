@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useApp, uid } from "../state";
 import type { Automation } from "../types";
 import { IconPlus, IconTrash, IconClock } from "../components/Icons";
-import { Tempo } from "../components/Brand";
+import { DotlingFace } from "../components/Brand";
 
 function AutomationEditor({ automation, onClose }: { automation: Automation; onClose: () => void }) {
   const { setAutomations, toast, bots } = useApp();
@@ -94,7 +94,7 @@ export function AutomationsScreen() {
     <div className="screen">
       <div className="screen-content" style={{ gridColumn: "1 / -1" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Tempo size={52} />
+          <DotlingFace face="tempo" size={60} />
           <h2 style={{ margin: 0 }}>Automations</h2>
         </div>
         <div className="screen-sub">Scheduled prompts that run on their own — like the original's routines and Slack/repo triggers, driven locally.</div>

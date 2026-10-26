@@ -18,7 +18,7 @@ import {
   IconImage,
   IconPlay,
 } from "./Icons";
-import { Orby, AgentDots } from "./Brand";
+import { DotlingFace, AgentDots } from "./Brand";
 
 const REACTION_SET = ["👍", "❤️", "😂", "😮", "🎉", "🙏"];
 
@@ -314,7 +314,7 @@ export function ChatView({ conversation, onSendRetry }: { conversation: Conversa
     return (
       <div className="empty-state" ref={scrollRef}>
         <div style={{ filter: "drop-shadow(0 0 26px rgba(245, 78, 0, 0.28))" }}>
-          <Orby size={104} mood="idle" />
+          <DotlingFace face="orby" size={130} />
         </div>
         <div className="greeting">{greetings}</div>
         <div className="sub">

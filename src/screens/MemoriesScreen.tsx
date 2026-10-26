@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useApp, uid } from "../state";
 import { IconPlus, IconTrash } from "../components/Icons";
-import { Echo } from "../components/Brand";
+import { DotlingFace } from "../components/Brand";
 
 export function MemoriesScreen() {
   const { memories, setMemories, toast } = useApp();
@@ -18,7 +18,7 @@ export function MemoriesScreen() {
     <div className="screen">
       <div className="screen-content" style={{ gridColumn: "1 / -1" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Echo size={52} />
+          <DotlingFace face="echo" size={60} />
           <h2 style={{ margin: 0 }}>Memories</h2>
         </div>
         <div className="screen-sub">
