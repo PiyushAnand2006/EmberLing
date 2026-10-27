@@ -37,7 +37,7 @@ The **desktop mark**: an always-on-top draggable orb (click to open, drop files 
 
 ![Emberling system architecture](docs/diagram-architecture.png)
 
-The renderer crosses a contextIsolation IPC boundary into the Electron main process — a pure dispatcher: the agent loop drives a fallback chain of free LLM providers and dispatches an approval-gated tool host to three execution targets (this host, a per-Dotling **WSL Linux VM** that runs approval-free, or a remote **SSH host**), reaches **38 real integration tools** (git hosts, Slack, Teams, email — secrets DPAPI-encrypted, never shown to the model), and persists everything to local JSON. Keyless Pollinations chats out of the box; keyed providers unlock tool calls; MCP servers join as `mcp_<server>_<tool>`. Automations run headless in this process — webhook-triggerable, with privileged host tools auto-declined when nobody is there to approve.
+The renderer crosses a contextIsolation IPC boundary into the Electron main process — a pure dispatcher: the agent loop drives a fallback chain of free LLM providers and dispatches an approval-gated tool host to three execution targets (this host, a per-Dotling **WSL Linux VM** that runs approval-free, or a remote **SSH host**), reaches **38 real integration tools** (git hosts, Slack, Teams, email — secrets DPAPI-encrypted, never shown to the model), drives your **installed Chrome/Edge over CDP**, and persists everything to local JSON — including a **versioned per-bot agent store**. Keyless Pollinations chats and calls tools out of the box (text-mode tool protocol); keyed providers unlock native tool calls; MCP servers join as `mcp_<server>_<tool>`. Automations run headless in this process — webhook-triggerable, approval-free inside a VM.
 
 ```
 ┌────────────────────────────── Windows ──────────────────────────────┐
@@ -75,7 +75,7 @@ The renderer crosses a contextIsolation IPC boundary into the Electron main proc
 - **`electron/shell-runner.js`** — the only spawn site. Script text → generated 0600 temp file → executed by absolute path. Never in argv.
 - **`electron/mcp.js`** — real MCP stdio JSON-RPC client (initialize → tools/list → tools/call).
 - **`electron/publish.js`** — HTTP server hosting published bots as web chats with token links + access control.
-- **`src/`** — React renderer: chat (bubbles, tool lines, approval/form cards, mermaid/chart/html/clip blocks), composer, screens (Settings/Bots/Memories/Automations/Integrations/Onboarding), i18n (8 locales), design tokens extracted verbatim from the original's CSS.
+- **`src/`** — React renderer: chat (bubbles, tool lines, approval/form cards, mermaid/chart/html/clip blocks), composer, screens (Settings/Bots/Memories/Automations/Integrations/Onboarding), i18n (36 locales), design tokens extracted verbatim from the original's CSS.
 
 ### One agent turn
 
@@ -89,14 +89,14 @@ Design tokens recovered by REA (exact values): chrome `#141414`, pane `#181818`,
 
 ## Installation
 
-### Option A — Desktop app (latest release: v0.75.8)
+### Option A — Desktop app (latest release: v0.75.12)
 
 Grab a build from [**Releases**](https://github.com/PiyushAnand2006/EmberLing/releases):
 
 | File | What it is |
 |---|---|
-| `Emberling-Setup-0.75.8.exe` | NSIS installer (~105 MB) — desktop + start-menu shortcuts, uninstaller |
-| `Emberling-Portable-0.75.8.exe` | Single portable exe (~105 MB) — run from anywhere, installs nothing |
+| `Emberling-Setup-0.75.12.exe` | NSIS installer (~105 MB) — desktop + start-menu shortcuts, uninstaller |
+| `Emberling-Portable-0.75.12.exe` | Single portable exe (~105 MB) — run from anywhere, installs nothing |
 
 1. Download and run the setup (or the portable).
 2. Launch **Emberling**. It works immediately — the default provider (Pollinations) needs **no API key**.
@@ -106,16 +106,18 @@ Grab a build from [**Releases**](https://github.com/PiyushAnand2006/EmberLing/re
 
 ### Update the app
 
-**Installed (Setup) users:**
+**Installed (Setup) users — automatic.** Emberling checks GitHub releases at launch and every 6 hours, downloads updates in the background, and shows a **Restart to update** banner when one is ready (dismiss it and the update still applies on next quit). You can also check manually in **Settings → About → Check now**.
+
+<details>
+<summary>Manual update (if you prefer)</summary>
 
 1. Quit Emberling — right-click the tray icon (orange dot) → **Quit Emberling** (closing the window keeps it running in the tray).
 2. Download the latest `Emberling-Setup-x.y.z.exe` from [Releases](https://github.com/PiyushAnand2006/EmberLing/releases).
 3. Run it — the NSIS installer detects the existing install and upgrades **in place** (same folder, same shortcuts). No uninstall needed first.
 4. Launch from the desktop/start-menu shortcut. Your data (chats, bots, memories, keys) lives in `%APPDATA%\emberling` and is never touched by an update.
+</details>
 
-Check what changed on the [release notes](https://github.com/PiyushAnand2006/EmberLing/releases) page. If you're unsure which build you have: Settings → About shows the version.
-
-**Portable users:** just download the new `Emberling-Portable-x.y.z.exe` and run it — replace the old file whenever you like; the two can coexist.
+**Portable users:** just download the new `Emberling-Portable-x.y.z.exe` and run it — replace the old file whenever you like; the two can coexist. (Portable builds can't self-update; they show a "Get it from GitHub" button instead.)
 
 **From-source users:**
 
@@ -126,6 +128,14 @@ npm start            # rebuild + launch
 ```
 
 **Rollback:** every release keeps its artifacts — grab any older `Emberling-Setup` from the releases list and install over the newer one to downgrade.
+
+### Recent releases
+
+| Version | Highlights |
+|---|---|
+| **v0.75.12** | Per-Dotling private Linux VMs (approval-free execution, headless automations), browser control over CDP, versioned per-bot agent store, auto-review rules, automation webhooks + Run now, live streaming STT, link previews, KaTeX, in-app auto-updater |
+| v0.75.10–11 | Integration stack (GitHub/GitLab/Bitbucket/Azure, Slack, Teams, SMTP/IMAP, 1Password, SSH remote), plugins/skills/contacts/calendar, computer-use clicks, TipTap composer, MCP marketplace, 36-locale i18n, Dotling mascots |
+| v0.75.9 | Keyless web search, command & task execution (Pollinations tools), DuckDuckGo fallbacks, first auto-updater groundwork |
 
 ### Option B — From source (development)
 
@@ -162,7 +172,21 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 
 **Composer** — markdown toolbar (bold/italic/code/link/lists/code block), slash commands (`/image`, `/video`, `/diagram`, `/chart`, `/preview`, `/search`, `/form`, `/teach`), file attachments, voice memos with playback + transcription, model picker, approval chip, bot selector.
 
-**Agent tools (19)** — `run_command`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web_search` (keyless), `web_fetch`, `generate_photo` (keyless), `generate_video` (keyless clips), `screenshot` (app), `screen_screenshot`, `spawn_subagent`, `request_user_form`, `react_to_message`, `send_email` (mailto + .eml draft), `list_windows`, `focus_window`, `type_text`, `save_memory`. Each is individually toggleable in Settings → General.
+**Agent tools (37 core)** — `run_command`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web_search` (keyless), `web_fetch`, `link_preview` (SSRF-guarded), `generate_photo` (keyless), `generate_video` (keyless clips), `screenshot` (app), `screen_screenshot`, `screen_click`/`screen_scroll` (real input automation), `spawn_subagent`, `request_user_form`, `react_to_message`, `send_email` (mailto + .eml draft), `list_windows`, `focus_window`, `type_text`, `get_window_rect`, `save_memory`, plus the 8 **browser** tools and 6 **agent store** tools below. Each is individually toggleable in Settings → General.
+
+**Linux sandbox — per-Dotling VMs** — Settings → General → *Linux sandbox (WSL)*: install a base distribution once (one UAC prompt), and **every Dotling gets its own private WSL Ubuntu VM** cloned lazily from that image — fully isolated filesystems, no per-bot download. With the target on, shell/file tools execute inside the VM in POSIX bash **without any approval prompt** (the VM boundary is the isolation), automations and webhook runs execute headlessly in their Dotling's VM, and a **Run now** button tests any automation on demand. While a VM is unavailable, tools fall back to this computer with an explicit note — and host-side actions keep their normal approval gating.
+
+**Browser control** — the agent drives your installed Chrome or Edge over the Chrome DevTools Protocol (isolated persistent profile, no bundled Chromium): `browser_open` / `browser_snapshot` (numbered interactive elements) / `browser_click` / `browser_type` (real mouse + key events) / `browser_scroll` / `browser_read` / `browser_screenshot` (saved into the chat as an image) / `browser_close`. Clicks and typing sit behind the approval gate; navigation is http(s)-only.
+
+**Agent store** — each bot gets a **private, versioned document store** on this device (`userData/agent-store/<bot>`): `store_write` keeps a 20-revision history, `store_read` can fetch any revision, plus `store_list` / `store_search` / `store_versions` / `store_delete`. This is the agent's durable local memory — the cloud AgentStoreService of the original, kept on your disk.
+
+**Auto-review rules** — pattern-based overrides evaluated before the approval mode: e.g. auto-allow `git status`, always ask before `npm publish`, deny `/rm -rf/`. Plain-text or `/regex/` patterns match against the tool call; first match wins. Edited in Settings → General.
+
+**Automation webhooks + Run now** — any automation can expose a keyed `POST http://127.0.0.1:<port>/webhook/<id>?key=…` trigger (loopback-only server, token shown once, copied to clipboard on enable). The Automations screen has a **Run now** button for on-demand testing.
+
+**Voice mode** — 📞 in the header: **live streaming speech-to-text** (Web Speech API — keyless, no recording round-trip) with a Whisper-memo fallback, agent reply, spoken answer. **Teach mode** — 🎓 records your screen as timed frames the agent learns a task from.
+
+**Extras** — `link_preview` fetches Open Graph/Twitter metadata for any URL; chat renders **KaTeX math** (`$…$`/`$$…$$`) alongside mermaid, charts, graphs and 3D blocks; out-bound web requests resolve hosts and refuse loopback/private ranges (SSRF guard); the app **auto-updates** from GitHub releases with a Restart-to-update banner (portable builds get a "Get it from GitHub" button).
 
 **MCP** — connect any stdio MCP server; discovered tools are injected into the agent turn automatically (named `mcp_<server>_<tool>`) and respect the approval mode.
 
@@ -170,9 +194,9 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 
 **Bots** — personal + team bots with Dotling faces, instructions, knowledge files, **template export/import**, and **publishing**: any bot becomes a live web chat on your LAN (`http://<ip>:<port>/agent/<id>?token=…`) with access control — a real hosted agent, no cloud bill.
 
-**Voice mode** — 📞 in the header: mic → Whisper transcription → agent → spoken reply. **Teach mode** — 🎓 records your screen as timed frames the agent learns a task from.
+**Voice mode** — 📞 in the header: mic → transcription → agent → spoken reply (see above for the live-STT path). **Teach mode** — 🎓 records your screen as timed frames the agent learns a task from.
 
-**Automations** — daily or every-N-minutes prompts that run head-first into their own conversation with a notification (never auto-approving privileged tools).
+**Automations** — daily or every-N-minutes prompts that run head-first into their own conversation with a notification, plus webhook triggers and Run-now testing (see above).
 
 **Free providers** — Pollinations (keyless default), Groq (also powers Whisper), OpenRouter, Google Gemini, Cerebras, Mistral, or any OpenAI-compatible endpoint. Multiple keys = automatic failover between providers.
 
@@ -206,10 +230,13 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 | Mermaid/d3/three visualizations | ✅ | ✅ mermaid + charts |
 | Desktop mark orb | ✅ | ✅ |
 | Tray | ✅ | ✅ |
-| i18n | ✅ 34 locales | ✅ 8 locales |
+| i18n | ✅ 34 locales | ✅ 36 locales |
 | Usage dashboard | ✅ | ✅ (local) |
 | Slack/Teams/iMessage delivery | ✅ (backend) | ✅ (Slack API, Teams Graph, SMTP/IMAP; iMessage on macOS) |
-| Cloud box ("On its computer") | ✅ | ✅ (SSH remote host) |
+| Cloud box ("On its computer") | ✅ | ✅ (per-Dotling WSL VMs + SSH remote host) |
+| Browser control | ✅ (computer use) | ✅ (CDP over your real Chrome/Edge) |
+| Agent file store | ✅ (cloud) | ✅ (local, versioned per bot) |
+| Meetings (join/transcribe/summarize) | ✅ | — (planned) |
 | Payments / upgrades | ✅ | ✨ free ("Emberling Plus") |
 
 ---
@@ -224,8 +251,14 @@ Three CDP suites drive the real app end-to-end (launch → evaluate → real mou
 | `scripts/real-click-test.mjs` | 8 real-mouse click checks (hit-testing, overlays) |
 | `scripts/menu-items-test.mjs` | menu selection, conversation menus, reactions |
 | `scripts/feature-test.mjs` | publish server round-trip, mermaid rendering, MCP section |
+| `scripts/agent-textmode-test.js` | tool-calling agent loop vs a scripted provider (text-mode + API tool protocols, split-call repair, empty-reply retry) |
+| `scripts/tools-direct-test.js` | direct tool surface: run_command, file ops, window listing, approval flags |
+| `scripts/sandbox-test.js` | WSL sandbox: path translation, per-Dotling VM naming, script guards, live probe/exec when a distro exists |
+| `scripts/features-test.js` | agent store (versioning/scopes/traversal), SSRF guard, browser URL guard, auto-review precedence, approval-free VM execution |
+| `scripts/media-lenient-test.js` | lenient tool-arg JSON recovery + keyless photo/clip/fetch |
+| `scripts/updater-smoke-test.mjs` | packaged-app boot + live auto-update check against GitHub releases |
 
-Run with `npm test` (launches its own instance). The MCP client additionally has a scripted round-trip against `scripts/test-mcp-server.cjs` (connect → list → call → assert).
+Run `npm test` for the four CDP suites (launches their own app instance); the Node suites run standalone with `node scripts/<name>`. The MCP client additionally has a scripted round-trip against `scripts/test-mcp-server.cjs` (connect → list → call → assert).
 
 ---
 
