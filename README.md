@@ -133,6 +133,7 @@ npm start            # rebuild + launch
 
 | Version | Highlights |
 |---|---|
+| **v0.75.13** | Teams sign-in completes (consent-fallback client chain, token refresh, staged errors); automation completion/failure visibility (failure toasts, error entries, per-automation notify toggle) |
 | **v0.75.12** | Per-Dotling private Linux VMs (approval-free execution, headless automations), browser control over CDP, versioned per-bot agent store, auto-review rules, automation webhooks + Run now, live streaming STT, link previews, KaTeX, in-app auto-updater |
 | v0.75.10–11 | Integration stack (GitHub/GitLab/Bitbucket/Azure, Slack, Teams, SMTP/IMAP, 1Password, SSH remote), plugins/skills/contacts/calendar, computer-use clicks, TipTap composer, MCP marketplace, 36-locale i18n, Dotling mascots |
 | v0.75.9 | Keyless web search, command & task execution (Pollinations tools), DuckDuckGo fallbacks, first auto-updater groundwork |
