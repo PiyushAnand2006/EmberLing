@@ -37,7 +37,7 @@ The **desktop mark**: an always-on-top draggable orb (click to open, drop files 
 
 ![Emberling system architecture](docs/diagram-architecture.png)
 
-The renderer talks to the Electron main process through a contextBridge IPC boundary; there, the agent loop drives a fallback chain of free LLM providers and an approval-gated tool host, persisting everything to local JSON. Keyless Pollinations chats out of the box — but tool calls need a keyed provider; MCP servers join their tools as `mcp_<server>_<tool>`.
+The renderer crosses a contextIsolation IPC boundary into the Electron main process — a pure dispatcher: the agent loop drives a fallback chain of free LLM providers and dispatches an approval-gated tool host to three execution targets (this host, a per-Dotling **WSL Linux VM** that runs approval-free, or a remote **SSH host**), reaches **38 real integration tools** (git hosts, Slack, Teams, email — secrets DPAPI-encrypted, never shown to the model), and persists everything to local JSON. Keyless Pollinations chats out of the box; keyed providers unlock tool calls; MCP servers join as `mcp_<server>_<tool>`. Automations run headless in this process — webhook-triggerable, with privileged host tools auto-declined when nobody is there to approve.
 
 ```
 ┌────────────────────────────── Windows ──────────────────────────────┐
@@ -45,12 +45,14 @@ The renderer talks to the Electron main process through a contextBridge IPC boun
 │  ┌──────────────┐   IPC (contextBridge)   ┌──────────────────────┐  │
 │  │ Main window  │ ◄──────────────────────► │ Electron main        │  │
 │  │ React + Vite │   agent:event stream     │ ├─ agent.js (loop)   │  │
-│  │ frameless    │   approvals / forms      │ ├─ tools.js (19)     │  │
-│  │              │                          │ ├─ mcp.js (stdio)    │  │
-│  └──────────────┘                          │ ├─ providers.js      │  │
-│  ┌──────────────┐                          │ ├─ publish.js (http) │  │
-│  │ Desktop orb  │ ◄── orb:move/drop ──────►│ ├─ shell-runner.js   │  │
-│  └──────────────┘                          │ └─ store.js (JSON)   │  │
+│  │ frameless    │   approvals / forms      │ ├─ tools.js (37)     │  │
+│  │              │                          │ ├─ integrations (38) │  │
+│  │              │                          │ ├─ sandbox.js (WSL)  │  │
+│  └──────────────┘                          │ ├─ mcp.js (stdio)    │  │
+│  ┌──────────────┐                          │ ├─ providers.js      │  │
+│  │ Desktop orb  │ ◄── orb:move/drop ──────►│ ├─ publish.js (http) │  │
+│  └──────────────┘                          │ ├─ shell-runner.js   │  │
+│  ┌──────────────┐                          │ └─ store.js (JSON)   │  │
 │  ┌──────────────┐                          └──────────┬───────────┘  │
 │  │ Tray         │◄───────────────────────────────────┘              │
 │  └──────────────┘        free providers: Pollinations (keyless),    │
@@ -61,10 +63,15 @@ The renderer talks to the Electron main process through a contextBridge IPC boun
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-- **`electron/main.js`** — frameless main window, orb, tray, IPC surface (~40 channels), automations scheduler, usage tracking, teach-mode capture.
-- **`electron/agent.js`** — tool-calling turn loop: stream → status pill → tool lines → results → continue (max 24 steps).
-- **`electron/tools.js`** — 19 agent tools + dynamic MCP tool injection; approval gating per mode.
-- **`electron/providers.js`** — OpenAI-compatible streaming client, multi-provider fallback, model-id self-heal (free providers rotate rosters; a dead model id auto-falls-back), Whisper transcription.
+- **`electron/main.js`** — frameless main window, orb, tray, IPC surface (~40 channels), headless automations scheduler (+ webhook triggers), auto-update via electron-updater (GitHub releases), usage tracking, teach-mode capture.
+- **`electron/agent.js`** — tool-calling turn loop: stream → status pill → tool lines → results → continue (max 24 steps); OpenAI tool-call protocol plus a text-mode fallback (```tool blocks) for keyless/small models, with call repair.
+- **`electron/tools.js`** — 37 core tools + dynamic MCP/plugin injection; user auto-review rules, then approval gating per mode (ask / askRisky / auto); routes shell & file tools to the sandbox VM or SSH host per execution target.
+- **`electron/sandbox.js`** — per-Dotling private WSL Ubuntu VMs (lazily cloned from a base distro); shell/file tools run inside the bot's own VM, approval-free by isolation.
+- **`electron/remote.js`** — SSH execution target ("On its computer"): app-generated ed25519 key, Windows OpenSSH client.
+- **`electron/browser.js`** — drives the installed Chrome/Edge over CDP (navigate, snapshot, click, type, read, screenshot) with an isolated profile.
+- **`electron/agent-store.js`** — per-bot file store (`userData/agent-store/<scope>`) with 20-deep version history.
+- **`electron/integration-tools.js` + `electron/integrations/`** — 38 real integration tools: GitHub/GitLab/Bitbucket/Azure repos, Slack, Teams (Graph OAuth), SMTP/IMAP email, iMessage, 1Password (`op` CLI) + workspace tools (unified search, contacts, calendar, skills). Credentials decrypt only inside the dispatcher (DPAPI via `secure-store.js`) — the model never sees tokens.
+- **`electron/providers.js`** — OpenAI-compatible streaming client, multi-provider fallback, model-id self-heal, live `/models` discovery into the picker, Whisper transcription.
 - **`electron/shell-runner.js`** — the only spawn site. Script text → generated 0600 temp file → executed by absolute path. Never in argv.
 - **`electron/mcp.js`** — real MCP stdio JSON-RPC client (initialize → tools/list → tools/call).
 - **`electron/publish.js`** — HTTP server hosting published bots as web chats with token links + access control.
@@ -74,7 +81,7 @@ The renderer talks to the Electron main process through a contextBridge IPC boun
 
 ![One agent turn, end to end](docs/diagram-agent-turn.png)
 
-A message flows to the main-process agent loop, which streams from the active provider (failing over to the next configured key on error). Every proposed tool call waits on your approval before the tool host executes it; results feed back into the next model call — looping up to 24 steps until the final reply streams in.
+A message flows to the main-process agent loop, which streams from the active provider (failing over to the next configured key on error). Proposed tool calls pass your auto-review rules and the approval mode before the tool host executes them — host-side privileged calls wait on you, sandbox-VM turns run approval-free, and headless runs auto-decline them; results feed back into the next model call, looping up to 24 steps until the final reply streams in.
 
 Design tokens recovered by REA (exact values): chrome `#141414`, pane `#181818`, brand `#f54e00`, accent `#599ce7`, Nord-style semantic palette, 4px spacing scale, 8/12px radii, bubble fills `#1c1c1c` / `#1c1c1c0f`.
 
@@ -201,8 +208,8 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 | Tray | ✅ | ✅ |
 | i18n | ✅ 34 locales | ✅ 8 locales |
 | Usage dashboard | ✅ | ✅ (local) |
-| Slack/Teams/iMessage delivery | ✅ (backend) | 🟡 simulated UI |
-| Cloud box ("On its computer") | ✅ | ❌ by design |
+| Slack/Teams/iMessage delivery | ✅ (backend) | ✅ (Slack API, Teams Graph, SMTP/IMAP; iMessage on macOS) |
+| Cloud box ("On its computer") | ✅ | ✅ (SSH remote host) |
 | Payments / upgrades | ✅ | ✨ free ("Emberling Plus") |
 
 ---
@@ -229,7 +236,10 @@ Run with `npm test` (launches its own instance). The MCP client additionally has
 | `electron/main.js` | Windows, tray, IPC, scheduler, usage, teach capture, integrations IPC |
 | `electron/preload.js` | contextBridge surface (`window.emberling`) |
 | `electron/agent.js` | Tool-calling turn loop (API + text-mode tool protocols) |
-| `electron/tools.js` | 24 tool defs + dispatch + approval gating + remote routing |
+| `electron/tools.js` | 37 tool defs + dispatch + approval gating + remote/sandbox routing |
+| `electron/sandbox.js` | Per-Dotling WSL Ubuntu VMs — isolated, approval-free execution |
+| `electron/browser.js` | CDP control of the installed Chrome/Edge |
+| `electron/agent-store.js` | Per-bot file store with version history |
 | `electron/shell-runner.js` | Privileged shell execution (only spawn site) |
 | `electron/remote.js` | SSH remote execution — "On its computer" |
 | `electron/integrations/` | GitHub/GitLab/Bitbucket/Azure, Slack, Teams (Graph), iMessage, email (SMTP/IMAP), 1Password |
