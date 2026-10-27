@@ -97,7 +97,7 @@ declare global {
     reposTest(payload: { provider: string; token: string; org?: string }): Promise<{ ok: boolean; repos?: any[]; error?: string }>;
     slackTest(token: string): Promise<{ ok: boolean; user?: string; team?: string; error?: string }>;
     teamsStartDeviceCode(): Promise<{ deviceCode?: string; userCode?: string; verifyUrl?: string; error?: string }>;
-    teamsPollToken(deviceCode: string): Promise<{ ok: boolean; pending?: boolean; error?: string }>;
+    teamsPollToken(deviceCode: string): Promise<{ ok: boolean; pending?: boolean; error?: string; restart?: { deviceCode: string; userCode?: string; verifyUrl?: string }; note?: string }>;
     teamsMe(): Promise<{ name?: string; mail?: string; error?: string }>;
     opStatus(): Promise<{ available: boolean; version?: string; error?: string }>;
     imessagePlatform(): Promise<{ isMac: boolean; platform: string }>;

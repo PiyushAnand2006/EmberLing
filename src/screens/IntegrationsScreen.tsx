@@ -156,10 +156,11 @@ function TeamsCard() {
       setError(start?.error || "could not start device sign-in");
       return;
     }
-    setPending({ deviceCode: start.deviceCode, userCode: start.userCode || "?", verifyUrl: start.verifyUrl || "https://microsoft.com/devicelogin" });
+    let current = { deviceCode: start.deviceCode, userCode: start.userCode || "?", verifyUrl: start.verifyUrl || "https://microsoft.com/devicelogin" };
+    setPending(current);
     const poll = async () => {
-      for (let i = 0; i < 40; i++) {
-        const res = await window.emberling.integrations.teamsPollToken(start.deviceCode || "");
+      for (let i = 0; i < 60; i++) {
+        const res = await window.emberling.integrations.teamsPollToken(current.deviceCode || "");
         if (res.ok) {
           const m = await window.emberling.integrations.teamsMe();
           set({ connected: true, accountName: m?.name || "" });
@@ -167,6 +168,14 @@ function TeamsCard() {
           setPending(null);
           toast("Microsoft Teams connected — chat tools are live");
           return;
+        }
+        // Microsoft refused the permissions for this client: a fresh code for
+        // the next first-party client arrives automatically — just re-enter it
+        if (res.restart?.deviceCode) {
+          current = { deviceCode: res.restart.deviceCode, userCode: res.restart.userCode || "?", verifyUrl: res.restart.verifyUrl || "https://microsoft.com/devicelogin" };
+          setPending(current);
+          setError("");
+          continue;
         }
         if (!res.pending) {
           setError(res.error || "sign-in failed");

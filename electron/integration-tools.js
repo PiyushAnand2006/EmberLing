@@ -137,10 +137,28 @@ async function executeIntegrationTool(call, ctx) {
       case "slack_react": return await slackApi.addReaction(g("slack", "botToken"), args.channel, args.timestamp, args.emoji);
       case "slack_history": return { ok: true, messages: await slackApi.history(g("slack", "botToken"), args.channel, args.limit) };
       case "slack_search": return { ok: true, results: await slackApi.searchMessages(g("slack", "botToken"), args.query) };
-      case "teams_me": return await teamsApi.me(g("teams", "accessToken"));
-      case "teams_chats": return { ok: true, chats: await teamsApi.listChats(g("teams", "accessToken")) };
-      case "teams_send": return await teamsApi.sendChatMessage(g("teams", "accessToken"), args.chatId, args.text);
-      case "teams_history": return { ok: true, messages: await teamsApi.chatHistory(g("teams", "accessToken"), args.chatId) };
+      case "teams_me":
+      case "teams_chats":
+      case "teams_send":
+      case "teams_history": {
+        // 401-transparent: refresh the stored token and persist the rotation
+        const creds = { accessToken: g("teams", "accessToken") || "", refreshToken: g("teams", "refreshToken") || "" };
+        if (!creds.accessToken) return { ok: false, error: "Microsoft Teams is not connected — connect it in Integrations." };
+        const call = (token) => {
+          if (name === "teams_me") return teamsApi.me(token);
+          if (name === "teams_chats") return { ok: true, chats: teamsApi.listChats(token) };
+          if (name === "teams_send") return teamsApi.sendChatMessage(token, args.chatId, args.text);
+          return { ok: true, messages: teamsApi.chatHistory(token, args.chatId) };
+        };
+        const r = await teamsApi.withToken(creds, call);
+        if (r.refreshed) {
+          ctx.store.update("integrations", (s) => ({
+            ...(s || {}),
+            teams: { ...(s?.teams || {}), accessToken: r.refreshed.accessToken, refreshToken: r.refreshed.refreshToken },
+          }));
+        }
+        return r.result;
+      }
       case "imessage_send": return await imessageApi.send(args.to, args.text);
       case "imessage_recent": return await imessageApi.recent(args.chatGuid, args.limit);
       case "email_send": return await emailApi.send(g("email", null) || {}, args);

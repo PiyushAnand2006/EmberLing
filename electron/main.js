@@ -450,29 +450,52 @@ ipcMain.handle("slack:test", async (_e, token) => {
   }
 });
 
-/* Microsoft Teams — device-code OAuth */
+/* Microsoft Teams — device-code OAuth with a client fallback chain */
+const teamsFlowClients = new Map(); // deviceCode -> candidate index
 ipcMain.handle("teams:startDeviceCode", async () => {
   try {
-    return await teamsApi.startDeviceCode();
+    return await teamsApi.startDeviceCode(0);
   } catch (err) {
     return { error: String(err.message) };
   }
 });
 ipcMain.handle("teams:pollToken", async (_e, deviceCode) => {
   try {
-    const t = await teamsApi.pollToken(deviceCode, 12000);
+    // clientIndex travels with the device code so the fallback chain survives
+    // across IPC calls (the UI re-invokes this handler while pending)
+    const clientIndex = teamsFlowClients.get(deviceCode) ?? 0;
+    const t = await teamsApi.pollToken(deviceCode, clientIndex, 12000);
+    if (t.pending) return { ok: false, pending: true };
     store.update("integrations", (s) => ({
       ...s,
       teams: { ...(s.teams || {}), accessToken: t.accessToken, refreshToken: t.refreshToken, connected: true },
     }));
     return { ok: true };
   } catch (err) {
-    return { ok: false, pending: String(err.message).includes("authorization_pending"), error: String(err.message) };
+    // consent refused for this client: restart the flow with the next one and
+    // hand the UI a fresh device code (Microsoft requires a new code per client)
+    if (err instanceof teamsApi.ConsentError) {
+      const started = await teamsApi.startDeviceCode(1).catch(() => null);
+      if (started) {
+        teamsFlowClients.set(started.deviceCode, started.clientIndex);
+        return { ok: false, pending: true, restart: started, note: "Microsoft needs a second confirmation — a new code is ready" };
+      }
+    }
+    return { ok: false, error: String(err.message) };
   }
 });
 ipcMain.handle("teams:me", async () => {
   try {
-    return await teamsApi.me(getInteg("teams", "accessToken"));
+    const creds = { accessToken: getInteg("teams", "accessToken") || "", refreshToken: getInteg("teams", "refreshToken") || "" };
+    if (!creds.accessToken) return { error: "not signed in" };
+    const r = await teamsApi.withToken(creds, (token) => teamsApi.me(token));
+    if (r.refreshed) {
+      store.update("integrations", (s) => ({
+        ...s,
+        teams: { ...(s.teams || {}), accessToken: r.refreshed.accessToken, refreshToken: r.refreshed.refreshToken },
+      }));
+    }
+    return r.result;
   } catch (err) {
     return { error: String(err.message) };
   }
