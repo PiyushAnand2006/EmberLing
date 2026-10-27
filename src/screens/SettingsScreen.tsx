@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useApp } from "../state";
 import type { ProviderInfo } from "../types";
 import { BUBBLE_COLORS } from "../types";
-import { IconSettings, IconBell, IconBrain, IconBot, IconKey, IconShield, IconMic, IconInfo, IconCheck, IconPlug, IconClock, IconSparkles } from "../components/Icons";
+import { IconSettings, IconBell, IconBrain, IconBot, IconKey, IconShield, IconMic, IconInfo, IconCheck, IconPlug, IconClock, IconSparkles, IconX } from "../components/Icons";
 import { LogoMark, Wordmark } from "../components/Brand";
 import { LANGUAGES } from "../i18n";
 import type { UsageRow, McpConfig } from "../types";
@@ -63,8 +63,189 @@ function UpdatesRow() {
   );
 }
 
-function ProviderCard({ provider }: { provider: ProviderInfo }) {
+// Linux sandbox (WSL) — the agent's local Linux box. Mirrors the original's
+// cloud-box setup flow: explicit download step from Settings, enable toggle,
+// one-time provisioning, and a reset action. While the sandbox is not ready,
+// agent commands fall back to this computer with a note.
+// Auto-review rules (the original's auto-review selector): pattern-based
+// allow/deny/ask overrides evaluated before the approval mode. Patterns match
+// against "toolName + arguments"; /.../ syntax is treated as a regex.
+function AutoReviewRules() {
   const { settings, setSettings, toast } = useApp();
+  const rules: { pattern: string; action: string }[] = Array.isArray((settings as any).autoReviewRules) ? (settings as any).autoReviewRules : [];
+  const [draft, setDraft] = useState("");
+
+  const update = (next: { pattern: string; action: string }[]) => {
+    setSettings((s: any) => ({ ...s, autoReviewRules: next }));
+  };
+  const add = () => {
+    const pattern = draft.trim();
+    if (!pattern) return;
+    if (pattern.startsWith("/") && !pattern.endsWith("/")) {
+      toast("Regex rules must look like /pattern/");
+      return;
+    }
+    update([...rules, { pattern, action: "ask" }]);
+    setDraft("");
+  };
+
+  return (
+    <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
+      <div>
+        <div className="row-label">Auto-review rules</div>
+        <div className="row-sub">
+          Override the approval mode for specific tools — e.g. allow <code>git status</code>, always ask before <code>npm publish</code>. Plain text matches
+          anywhere in the tool call; /regex/ for advanced matching. First match wins.
+        </div>
+      </div>
+      {rules.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+          {rules.map((r, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <code style={{ flex: 1, fontSize: 12, color: "var(--cursor-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {r.pattern}
+              </code>
+              <select
+                className="text-input"
+                style={{ width: 110 }}
+                value={r.action}
+                onChange={(e) => update(rules.map((x, j) => (j === i ? { ...x, action: e.target.value } : x)))}
+              >
+                <option value="allow">Auto-allow</option>
+                <option value="ask">Always ask</option>
+                <option value="deny">Deny</option>
+              </select>
+              <button className="icon-btn" onClick={() => update(rules.filter((_, j) => j !== i))}>
+                <IconX size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <input
+          className="text-input"
+          style={{ flex: 1 }}
+          placeholder="e.g. git status  ·  /npm (publish|install -g)/"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
+        <button className="btn" onClick={add}>
+          Add rule
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SandboxCard() {
+  const { settings, setSettings, toast } = useApp();
+  const [probe, setProbe] = useState<any>(null);
+  const [busy, setBusy] = useState<"" | "probe" | "install" | "reset">("");
+  const enabled = settings.executionTarget === "sandbox";
+
+  const refresh = async () => {
+    setBusy("probe");
+    try {
+      setProbe(await window.emberling.sandbox.probe());
+    } catch (err: any) {
+      setProbe({ state: "error", hint: String(err?.message || err).slice(0, 120) });
+    } finally {
+      setBusy("");
+    }
+  };
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const install = async () => {
+    setBusy("install");
+    try {
+      const res = await window.emberling.sandbox.install();
+      toast(res.note || "Sandbox setup started");
+    } catch (err: any) {
+      toast(String(err?.message || err).slice(0, 120));
+    } finally {
+      setBusy("");
+      setTimeout(refresh, 1500);
+    }
+  };
+
+  const reset = async () => {
+    if (!confirm("Reset the Linux sandbox? This deletes the WSL distribution and everything inside it.")) return;
+    setBusy("reset");
+    try {
+      const res = await window.emberling.sandbox.reset();
+      toast(res.ok ? res.note || "Sandbox reset" : res.error || "Reset failed");
+      if (res.ok && enabled) window.emberling.sandbox.setTarget("local");
+    } finally {
+      setBusy("");
+      refresh();
+    }
+  };
+
+  const toggle = () => {
+    const next = !enabled;
+    if (next && probe?.state !== "ready") {
+      toast("The sandbox is not ready yet — finish the setup below first");
+      return;
+    }
+    window.emberling.sandbox.setTarget(next ? "sandbox" : "local");
+    setSettings((s: any) => ({ ...s, executionTarget: next ? "sandbox" : "local" }));
+    toast(next ? "Agent commands now run in the Linux sandbox" : "Agent commands run on this computer");
+  };
+
+  const statusText =
+    busy === "probe"
+      ? "Checking WSL status…"
+      : probe?.state === "ready"
+        ? `Ready — ${probe.distro}`
+        : probe?.state === "missing-wsl"
+          ? "WSL is not installed on this PC"
+          : probe?.state === "no-distro"
+            ? "WSL is present but no Linux distribution is installed yet"
+            : probe?.state === "error"
+              ? `Error: ${probe.hint}`
+              : "…";
+
+  return (
+    <div className="settings-group">
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div>
+            <div className="row-label">Linux sandbox (WSL)</div>
+            <div className="row-sub">{statusText}</div>
+          </div>
+          <button className={`toggle${enabled ? " on" : ""}`} onClick={toggle} title={enabled ? "Sandbox execution on" : "Run agent commands in the sandbox"} />
+        </div>
+        <div className="row-sub" style={{ color: "var(--cursor-text-tertiary)" }}>
+          {enabled
+            ? "Agent commands and file tools run inside the sandbox. While it is unavailable they fall back to this computer with a note."
+            : "Give the agent an isolated Linux box for builds and experiments. The distribution downloads once, from Settings — nothing leaves this PC."}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {probe?.state !== "ready" && (
+            <button className="btn primary" onClick={install} disabled={busy !== ""}>
+              {busy === "install" ? "Installing…" : probe?.state === "missing-wsl" ? "Install WSL + Ubuntu" : "Install Ubuntu (download)"}
+            </button>
+          )}
+          <button className="btn" onClick={refresh} disabled={busy !== ""}>
+            {busy === "probe" ? "Checking…" : "Refresh status"}
+          </button>
+          {probe?.state === "ready" && (
+            <button className="btn" onClick={reset} disabled={busy !== ""}>
+              {busy === "reset" ? "Resetting…" : "Reset sandbox"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { settings, setSettings, toast } = useApp();
   const creds = settings.providers[provider.id] || {};
   const [apiKey, setApiKey] = useState(creds.apiKey || "");
   const [model, setModel] = useState(creds.model || provider.models[0]?.id || "");
@@ -231,6 +412,21 @@ const TOOL_LABELS: Record<string, string> = {
   focus_window: "Focus windows",
   type_text: "Type keystrokes",
   save_memory: "Save memories",
+  browser_open: "Open web pages",
+  browser_snapshot: "Read page structure",
+  browser_click: "Click in browser",
+  browser_type: "Type in browser",
+  browser_scroll: "Scroll browser",
+  browser_read: "Read page text",
+  browser_screenshot: "Browser screenshots",
+  browser_close: "Detach browser",
+  store_write: "Agent store: write",
+  store_read: "Agent store: read",
+  store_list: "Agent store: list",
+  store_search: "Agent store: search",
+  store_versions: "Agent store: history",
+  store_delete: "Agent store: delete",
+  link_preview: "Link previews",
 };
 
 export function SettingsScreen() {
@@ -273,6 +469,7 @@ export function SettingsScreen() {
                   <option value="auto">Act automatically</option>
                 </select>
               </div>
+              <AutoReviewRules />
               <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
                 <div>
                   <div className="row-label">Agent tools</div>
@@ -300,6 +497,7 @@ export function SettingsScreen() {
                   })}
                 </div>
               </div>
+              <SandboxCard />
               <div className="settings-row">
                 <div>
                   <div className="row-label">Desktop mark</div>

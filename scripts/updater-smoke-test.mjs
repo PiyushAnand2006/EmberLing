@@ -2,7 +2,7 @@
 // launches the real exe with an isolated profile + CDP, then drives
 // window.emberling.updater.check() against the live GitHub releases feed.
 import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -83,20 +83,18 @@ await evalJs(`(${sleepInPage.replace(/^new Promise/, "new Promise")})`); // sett
 const hasApi = await evalJs("typeof window.emberling?.updater?.check === 'function' && typeof window.emberling?.updater?.install === 'function'");
 console.log("updater api exposed:", hasApi);
 
-// 2. real check against GitHub releases (v0.75.9 is the latest published release)
+// 2. real check against GitHub releases (latest published release vs app version)
 const check = await evalJs("window.emberling.updater.check()");
 console.log("check result:", JSON.stringify(check));
 
+const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 let ok = false;
-if (check && check.ok && check.current === "0.75.9") {
-  if (check.latest === "0.75.9" && check.updateAvailable === false) {
-    console.log("PASS — packaged app reached GitHub, parsed latest.yml, and reports up to date (0.75.9)");
-    ok = true;
-  } else if (check.updateAvailable === true) {
-    console.log("NOTE — a newer release exists (" + check.latest + "); updateAvailable=true is correct behavior");
+if (check && check.ok && check.current === pkg.version) {
+  if (check.latest && check.updateAvailable === (check.latest !== check.current)) {
+    console.log(`PASS — packaged app reached GitHub, parsed latest.yml, and reports ${check.updateAvailable ? `update available (${check.latest})` : `up to date (${check.current})`}`);
     ok = true;
   } else {
-    console.log("FAIL — unexpected latest:", check.latest);
+    console.log("FAIL — inconsistent latest/updateAvailable:", check.latest, check.updateAvailable);
   }
 } else {
   console.log("FAIL —", JSON.stringify(check));

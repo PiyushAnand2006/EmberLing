@@ -106,6 +106,16 @@ declare global {
     licenseActivate(key: string): Promise<{ ok: boolean; name?: string; error?: string }>;
     licenseStatus(): Promise<{ plus: boolean; holder: string }>;
   };
+  sandbox: {
+    probe(): Promise<{ state: "missing-wsl" | "no-distro" | "ready" | "error"; distros: string[]; distro: string | null; hint: string | null }>;
+    install(): Promise<{ ok: boolean; note: string }>;
+    reset(): Promise<{ ok: boolean; note?: string; error?: string }>;
+    setTarget(target: "local" | "remote" | "sandbox"): void;
+  };
+  automations: {
+    webhookEnable(id: string, enable: boolean): Promise<{ ok: boolean; enabled?: boolean; url?: string | null; note?: string; error?: string }>;
+    webhookPort(): Promise<number | null>;
+  };
   updater: {
     check(): Promise<{ ok: boolean; current: string; latest?: string; updateAvailable?: boolean; state?: string; portable: boolean; error?: string }>;
     install(): void;

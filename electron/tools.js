@@ -322,16 +322,291 @@ const TOOL_DEFS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "browser_open",
+      description:
+        "Open the agent's Chrome/Edge browser at an http(s) URL and return the page title plus numbered interactive elements. The browser session persists between browser_* calls.",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string" } },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_snapshot",
+      description:
+        "Snapshot the current browser page: url, title, body text, and numbered interactive elements (indexes for browser_click / browser_type).",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_click",
+      description: "Click a numbered element (from browser_snapshot) in the agent's browser with a real mouse event. Requires approval.",
+      parameters: {
+        type: "object",
+        properties: { index: { type: "number", description: "element index from browser_snapshot" } },
+        required: ["index"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_type",
+      description:
+        "Type text into a numbered input element (from browser_snapshot) in the agent's browser. Set submit=true to press Enter after typing. Requires approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          index: { type: "number" },
+          text: { type: "string" },
+          submit: { type: "boolean", description: "press Enter after typing" },
+        },
+        required: ["index", "text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_scroll",
+      description: "Scroll the agent's browser page up or down by notches and return the refreshed element snapshot.",
+      parameters: {
+        type: "object",
+        properties: {
+          direction: { type: "string", description: "'up' or 'down'" },
+          amount: { type: "number", description: "notches, 1-25" },
+        },
+        required: ["direction"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_read",
+      description: "Read the visible text content of the agent's browser page (truncated to ~12000 chars).",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_screenshot",
+      description: "Capture a screenshot of the agent's browser page and return a emberling-media:// URL to embed as markdown.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_close",
+      description: "Detach from the agent's browser session (the browser window stays open).",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_write",
+      description:
+        "Write (create or overwrite) a document in YOUR persistent local store — private per-agent memory that survives across conversations. Versioned: every write creates a new revision.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "document name, e.g. 'notes/project-ideas.md'" },
+          content: { type: "string" },
+        },
+        required: ["name", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_read",
+      description: "Read a document from YOUR persistent local store (optionally a specific revision number).",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          version: { type: "number", description: "optional revision number" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_list",
+      description: "List the documents in YOUR persistent local store with sizes and versions.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_search",
+      description: "Search all documents in YOUR persistent local store for a text fragment; returns the matching documents with excerpts.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_versions",
+      description: "List the saved revisions of a document in YOUR persistent local store.",
+      parameters: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_delete",
+      description: "Delete a document from YOUR persistent local store (the latest revision is archived). Requires approval.",
+      parameters: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "link_preview",
+      description: "Fetch a URL's public link-preview metadata: title, description, image (Open Graph / Twitter card / <title>).",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string" } },
+        required: ["url"],
+      },
+    },
+  },
 ];
 
-const NEEDS_APPROVAL = new Set(["run_command", "write_file", "edit_file", "focus_window", "type_text", "screen_click", "screen_scroll", "get_window_rect"]);
+const NEEDS_APPROVAL = new Set(["run_command", "write_file", "edit_file", "focus_window", "type_text", "screen_click", "screen_scroll", "get_window_rect", "browser_click", "browser_type", "store_delete"]);
 const RISKY_RE = /rm\s|del\s|format|sudo|remove-item/i;
 
-const { webSearch, webFetch, generatePhoto, truncate } = require("./web-tools");
+const { webSearch, webFetch, linkPreview, generatePhoto, truncate } = require("./web-tools");
+const sandbox = require("./sandbox");
+const browserCtl = require("./browser");
 
 function toolsRequiringApproval(name) {
   return NEEDS_APPROVAL.has(name);
 }
+
+/* ---------- Linux sandbox routing ----------
+ * When the user's execution target is "sandbox", the shell/file tools run
+ * inside the WSL distro (the agent's Linux box). While the sandbox is not
+ * ready, tools fall back to this computer with an explicit note — the same
+ * graceful degradation the original applies while its box provisions.
+ * The agent's bash flavor is signaled by rewriting the run_command tool
+ * description (agent.js) so the model emits POSIX commands. */
+async function runToolInSandbox(name, args, ctx) {
+  // approval first — the same privileged set as local execution, with an
+  // explicit sandbox title so the user knows where the command will run
+  if (NEEDS_APPROVAL.has(name) && (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky")) {
+    const risky = name === "run_command" && RISKY_RE.test(String(args.command || ""));
+    if (ctx.approvalMode === "ask" || risky) {
+      const detail = name === "run_command" ? String(args.command || "") : String(args.path || "");
+      const ok = await ctx.approve({ tool: name, title: "Run in the Linux sandbox (WSL)", detail, kind: "command" });
+      if (!ok) return { ok: false, error: "User declined to run this in the sandbox." };
+    }
+  }
+  const state = await sandbox.probe();
+  if (state.state !== "ready") {
+    const fallback = await executeTool(callFor(name, args), { ...ctx, executionTarget: "local" });
+    return {
+      ...fallback,
+      note: `Linux sandbox not ready (${state.hint || state.state}) — ran on this computer instead.`,
+    };
+  }
+  switch (name) {
+    case "run_command": {
+      const script = validateScript(args.command);
+      return await sandbox.runInSandbox({ script, cwd: args.cwd, distro: state.distro, signal: ctx.signal });
+    }
+    case "read_file": {
+      const target = sandbox.winToWslPath(String(args.path || ""));
+      const bridge = await sandbox.tempBridgeFile();
+      try {
+        const r = await sandbox.runInSandbox({
+          script: sandbox.shQuote("cat") + " " + sandbox.shQuote(target) + " > " + bridge.wslPath,
+          distro: state.distro,
+          signal: ctx.signal,
+        });
+        if (r.exitCode !== 0) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
+        const content = await fsp.readFile(bridge.hostPath, "utf8");
+        return { ok: true, content: truncate(content, 20000), sandbox: state.distro };
+      } finally {
+        await bridge.cleanup();
+      }
+    }
+    case "write_file": {
+      const target = sandbox.winToWslPath(String(args.path || ""));
+      const bridge = await sandbox.tempBridgeFile();
+      try {
+        await fsp.writeFile(bridge.hostPath, String(args.content ?? ""), "utf8");
+        const r = await sandbox.runInSandbox({
+          script:
+            sandbox.shQuote("mkdir") + " -p $(dirname " + sandbox.shQuote(target) + ") && " +
+            sandbox.shQuote("cp") + " " + bridge.wslPath + " " + sandbox.shQuote(target),
+          distro: state.distro,
+          signal: ctx.signal,
+        });
+        if (r.exitCode !== 0) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
+        return { ok: true, wrote: args.path, sandbox: state.distro };
+      } finally {
+        await bridge.cleanup();
+      }
+    }
+    case "edit_file": {
+      // read via the bridge, replace in JS, write back through the bridge
+      const readRes = await runToolInSandbox("read_file", { path: args.path }, ctx);
+      if (readRes.ok === false) return readRes;
+      const original = String(readRes.content || "");
+      if (!original.includes(String(args.old_text ?? ""))) return { ok: false, error: "old_text not found in file" };
+      const next = original.replace(String(args.old_text ?? ""), String(args.new_text ?? ""));
+      return await runToolInSandbox("write_file", { path: args.path, content: next }, ctx);
+    }
+    case "list_dir": {
+      const target = sandbox.winToWslPath(String(args.path || ""));
+      const r = await sandbox.runInSandbox({
+        script: sandbox.shQuote("ls") + " -la --color=never " + sandbox.shQuote(target) + " | head -500",
+        distro: state.distro,
+        signal: ctx.signal,
+      });
+      if (r.exitCode !== 0 && !r.stdout.trim()) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
+      return { ok: true, entries: r.stdout.trim() || "(empty)", sandbox: state.distro };
+    }
+    default:
+      return null; // not a sandbox tool — caller executes locally
+  }
+}
+
+// Rebuild a call shape for local fallback execution.
+function callFor(name, args) {
+  return { name, args };
+}
+
+const SANDBOX_TOOLS = new Set(["run_command", "read_file", "write_file", "edit_file", "list_dir"]);
 
 async function listDir(p) {
   const entries = await fsp.readdir(p, { withFileTypes: true });
@@ -355,7 +630,20 @@ async function listDir(p) {
 async function executeTool(call, ctx) {
   const { name, args } = call;
   const signal = ctx.signal;
+  // auto-review rules (the original's auto-review selector): user-defined
+  // patterns that allow / deny / force-ask for a tool before the approval mode
+  const rule = ctx.resolveAutoReview?.(name, args);
+  if (rule === "deny") {
+    return { ok: false, error: "Blocked by your auto-review rules." };
+  }
+  if (rule === "allow") ctx = { ...ctx, approvalMode: "auto" };
+  else if (rule === "ask") ctx = { ...ctx, approvalMode: "ask" };
   try {
+    // sandbox execution target: shell/file tools run inside the WSL Linux box
+    if (ctx.executionTarget === "sandbox" && SANDBOX_TOOLS.has(name)) {
+      const sandboxed = await runToolInSandbox(name, args, ctx);
+      if (sandboxed) return sandboxed;
+    }
     switch (name) {
       case "run_command": {
         const script = validateScript(args.command);
@@ -483,6 +771,69 @@ async function executeTool(call, ctx) {
         if (typeof ctx.takeScreenScreenshot !== "function") return { ok: false, error: "screen capture unavailable" };
         return await ctx.takeScreenScreenshot();
       }
+      case "browser_open":
+        return await browserCtl.open(args.url);
+      case "browser_snapshot":
+        return await browserCtl.snapshot();
+      case "browser_read":
+        return await browserCtl.read();
+      case "browser_scroll":
+        return await browserCtl.scroll(args);
+      case "browser_close":
+        return await browserCtl.close();
+      case "browser_click": {
+        if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
+          const ok = await ctx.approve({ tool: name, title: "Browser control", detail: `Click element #${args.index}`, kind: "computer-use" });
+          if (!ok) return { ok: false, error: "User declined this browser action." };
+        }
+        return await browserCtl.click(args);
+      }
+      case "browser_type": {
+        if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
+          const ok = await ctx.approve({ tool: name, title: "Browser control", detail: `Type into element #${args.index}: ${String(args.text || "").slice(0, 120)}`, kind: "computer-use" });
+          if (!ok) return { ok: false, error: "User declined this browser action." };
+        }
+        return await browserCtl.type(args);
+      }
+      case "browser_screenshot": {
+        const shot = await browserCtl.screenshot();
+        if (typeof ctx.saveBrowserShot === "function") {
+          const saved = await ctx.saveBrowserShot(Buffer.from(shot.pngBase64, "base64"));
+          if (saved?.url) return { ok: true, url: saved.url, note: "Embed with markdown image syntax." };
+        }
+        return { ok: true, pngBase64: shot.pngBase64, note: "base64 PNG (no media bridge available)" };
+      }
+      case "store_write": {
+        if (!ctx.agentStore) return { ok: false, error: "agent store unavailable" };
+        const res = await ctx.agentStore.write(args.name, args.content);
+        return res;
+      }
+      case "store_read": {
+        if (!ctx.agentStore) return { ok: false, error: "agent store unavailable" };
+        return await ctx.agentStore.read(args.name, args.version);
+      }
+      case "store_list": {
+        if (!ctx.agentStore) return { ok: false, error: "agent store unavailable" };
+        return await ctx.agentStore.list();
+      }
+      case "store_search": {
+        if (!ctx.agentStore) return { ok: false, error: "agent store unavailable" };
+        return await ctx.agentStore.search(args.query);
+      }
+      case "store_versions": {
+        if (!ctx.agentStore) return { ok: false, error: "agent store unavailable" };
+        return await ctx.agentStore.versions(args.name);
+      }
+      case "store_delete": {
+        if (!ctx.agentStore) return { ok: false, error: "agent store unavailable" };
+        if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
+          const ok = await ctx.approve({ tool: name, title: "Delete from agent store", detail: String(args.name || ""), kind: "edit" });
+          if (!ok) return { ok: false, error: "User declined this store deletion." };
+        }
+        return await ctx.agentStore.delete(args.name);
+      }
+      case "link_preview":
+        return await linkPreview(args.url);
       case "screen_click": {
         if (!computerUse.isSupported) return { ok: false, error: "input automation is Windows-only in this build" };
         if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
@@ -550,6 +901,21 @@ const STATUS_BY_TOOL = {
   type_text: "Using your computer",
   screen_click: "Using your computer",
   screen_scroll: "Using your computer",
+  browser_open: "Browsing the web",
+  browser_snapshot: "Browsing the web",
+  browser_click: "Browsing the web",
+  browser_type: "Browsing the web",
+  browser_scroll: "Browsing the web",
+  browser_read: "Reading the web",
+  browser_screenshot: "Taking a screenshot",
+  browser_close: "Browsing the web",
+  store_write: "Saving to your store",
+  store_read: "Reading your store",
+  store_list: "Reading your store",
+  store_search: "Searching your store",
+  store_versions: "Reading your store",
+  store_delete: "Updating your store",
+  link_preview: "Previewing a link",
   get_window_rect: "Using your computer",
   save_memory: "Saving a memory",
 };

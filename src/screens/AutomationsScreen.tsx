@@ -132,6 +132,25 @@ export function AutomationsScreen() {
                   {a.lastRun ? `last ran ${new Date(a.lastRun).toLocaleString()}` : "never ran"} · {a.prompt.slice(0, 80)}
                 </div>
               </div>
+              <button
+                className={`icon-btn${(a as any).webhook ? " webhook-on" : ""}`}
+                title={((a as any).webhook && (a as any).webhookKey) ? "Webhook on — click to copy the URL" : "Enable webhook trigger"}
+                onClick={async () => {
+                  const enable = !(a as any).webhook || !(a as any).webhookKey;
+                  const res = await window.emberling.automations.webhookEnable(a.id, enable);
+                  if (res.ok && res.url) {
+                    navigator.clipboard.writeText(res.url).catch(() => {});
+                    toast(enable ? "Webhook on — URL copied to clipboard" : "Webhook off");
+                  } else if (res.ok) {
+                    toast(res.note || "Webhook listener starting — toggle again in a moment");
+                  } else {
+                    toast(res.error || "Webhook failed");
+                  }
+                  setAutomations((list) => list.map((x) => (x.id === a.id ? { ...x, webhook: enable } : x)));
+                }}
+              >
+                Webhook
+              </button>
               <button className="icon-btn" title="Edit" onClick={() => setEditing(a)}>
                 Edit
               </button>

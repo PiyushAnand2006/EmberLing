@@ -117,6 +117,9 @@ export interface Automation {
   lastRun?: number | null;
   runImmediately?: boolean;
   botId?: string;
+  /** webhook trigger (POST /webhook/<id>?key=<token> on loopback) */
+  webhook?: boolean;
+  webhookKey?: string;
 }
 
 export interface ProviderCreds {
@@ -142,8 +145,8 @@ export interface Settings {
   queueOffline: boolean;
   plus: boolean;
   plusKeyHolder?: string;
-  /** Section A: where agent tools execute — this machine or the SSH remote. */
-  executionTarget?: "local" | "remote";
+  /** Where agent tools execute — this machine, the SSH remote, or the WSL Linux sandbox. */
+  executionTarget?: "local" | "remote" | "sandbox";
   remote?: { name: string; host: string; port?: number; user: string };
   orbPosition?: { x: number; y: number };
   voice: { input: string; rate: number };

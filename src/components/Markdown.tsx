@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { IconCopy } from "./Icons";
 
 function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -388,7 +391,8 @@ export function Markdown({ content }: { content: string }) {
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
           img: ({ src, alt }) => <img src={String(src || "")} alt={alt || ""} loading="lazy" style={{ maxWidth: "100%", borderRadius: 8 }} />,

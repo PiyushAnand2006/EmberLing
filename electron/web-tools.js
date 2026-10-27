@@ -1,10 +1,62 @@
 // Web tools module — keyless search and page fetching.
 // Search uses DuckDuckGo's lite endpoint (fallback: html endpoint); fetching
-// is restricted to http(s) and returns readable text.
+// is restricted to http(s) and returns readable text. Outbound requests only
+// target public hosts: localhost, loopback, private and reserved ranges are
+// rejected (hostname check + DNS resolution check) before any fetch.
+
+const dns = require("node:dns/promises");
+const net = require("node:net");
 
 function truncate(s, n) {
   if (typeof s !== "string") s = String(s);
   return s.length > n ? s.slice(0, n) + `\n… [truncated ${s.length - n} chars]` : s;
+}
+
+// SSRF guard: http/https, no credentials, host must resolve to a public IP.
+async function assertPublicHttpUrl(rawUrl) {
+  let u;
+  try {
+    u = new URL(String(rawUrl));
+  } catch {
+    throw new Error("invalid URL");
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("only http(s) URLs are allowed");
+  if (u.username || u.password) throw new Error("credentials in URLs are not allowed");
+  const host = u.hostname.toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
+    throw new Error("local hostnames are not allowed");
+  }
+  if (net.isIP(host)) {
+    assertPublicIp(host);
+  } else {
+    let addrs = [];
+    try {
+      addrs = await dns.lookup(host, { all: true });
+    } catch {
+      throw new Error("host does not resolve");
+    }
+    if (!addrs.length) throw new Error("host does not resolve");
+    for (const a of addrs) assertPublicIp(a.address);
+  }
+  return u;
+}
+
+function assertPublicIp(ip) {
+  const v = ip.version || (net.isIPv6(ip) ? 6 : 4);
+  const range = new net.BlockList();
+  range.addSubnet("127.0.0.0", 8, "ipv4");
+  range.addSubnet("10.0.0.0", 8, "ipv4");
+  range.addSubnet("172.16.0.0", 12, "ipv4");
+  range.addSubnet("192.168.0.0", 16, "ipv4");
+  range.addSubnet("169.254.0.0", 16, "ipv4");
+  range.addSubnet("0.0.0.0", 8, "ipv4");
+  range.addSubnet("100.64.0.0", 10, "ipv4");
+  range.addSubnet("::1", 128, "ipv6");
+  range.addSubnet("fe80::", 10, "ipv6");
+  range.addSubnet("fc00::", 7, "ipv6");
+  if (range.check(ip, v === 6 ? "ipv6" : "ipv4")) {
+    throw new Error("requests to private, loopback or reserved addresses are not allowed");
+  }
 }
 
 function stripHtml(html) {
@@ -123,8 +175,7 @@ async function ddgInstantAnswers(query) {
  * @param {string} rawUrl - the page address, must be http(s)
  */
 async function webFetch(rawUrl) {
-  const parsed = new URL(String(rawUrl));
-  if (!/^https?:$/.test(parsed.protocol)) throw new Error("only http(s) URLs are allowed");
+  const parsed = await assertPublicHttpUrl(rawUrl);
   const res = await fetch(parsed, {
     headers: { ...BROWSER_HEADERS, Accept: "text/html,application/json,text/plain,*/*" },
     redirect: "follow",
@@ -133,6 +184,34 @@ async function webFetch(rawUrl) {
   const body = await res.text();
   if (ct.includes("json")) return truncate(body, 12000);
   return truncate(stripHtml(body), 12000);
+}
+
+/**
+ * Fetch a URL's public link-preview metadata (Open Graph / Twitter / <title>).
+ * @param {string} rawUrl - the page address
+ */
+async function linkPreview(rawUrl) {
+  const parsed = await assertPublicHttpUrl(rawUrl);
+  const res = await fetch(parsed, {
+    headers: { ...BROWSER_HEADERS, Accept: "text/html" },
+    redirect: "follow",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("html")) return { ok: true, url: parsed.toString(), title: "", description: "", image: "", note: "content-type: " + ct.split(";")[0] };
+  const html = (await res.text()).slice(0, 500000);
+  const meta = (prop) => {
+    const re = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)["']`, "i");
+    const alt = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${prop}["']`, "i");
+    const m = html.match(re) || html.match(alt);
+    return m ? m[1].trim() : "";
+  };
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = meta("og:title") || meta("twitter:title") || stripHtml(titleMatch ? titleMatch[1] : "").slice(0, 200);
+  const description = meta("og:description") || meta("twitter:description") || meta("description");
+  const image = meta("og:image") || meta("twitter:image");
+  const siteName = meta("og:site_name");
+  return { ok: true, url: parsed.toString(), title, description: description.slice(0, 400), image, siteName };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -205,4 +284,4 @@ async function generateVideo(prompt, frames = 5) {
   };
 }
 
-module.exports = { webSearch, webFetch, generatePhoto, generateVideo, stripHtml, truncate };
+module.exports = { webSearch, webFetch, linkPreview, generatePhoto, generateVideo, stripHtml, truncate, assertPublicHttpUrl };

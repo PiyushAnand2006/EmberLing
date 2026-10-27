@@ -135,6 +135,18 @@ const api = {
     licenseStatus: () => ipcRenderer.invoke("license:status"),
   },
 
+  sandbox: {
+    probe: () => ipcRenderer.invoke("sandbox:probe"),
+    install: () => ipcRenderer.invoke("sandbox:install"),
+    reset: () => ipcRenderer.invoke("sandbox:reset"),
+    setTarget: (target) => ipcRenderer.send("sandbox:setTarget", target),
+  },
+
+  automations: {
+    webhookEnable: (id, enable) => ipcRenderer.invoke("automations:webhookEnable", { id, enable }),
+    webhookPort: () => ipcRenderer.invoke("automations:webhookPort"),
+  },
+
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),
     install: () => ipcRenderer.send("updater:install"),

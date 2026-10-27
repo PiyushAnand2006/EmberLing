@@ -320,7 +320,12 @@ function defaultSettings() {
       "web_search", "web_fetch", "generate_photo", "generate_video", "screenshot",
       "screen_screenshot", "spawn_subagent", "react_to_message", "request_user_form",
       "send_email", "list_windows", "focus_window", "type_text", "save_memory",
+      "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll",
+      "browser_read", "browser_screenshot", "browser_close",
+      "store_write", "store_read", "store_list", "store_search", "store_versions", "store_delete",
+      "link_preview",
     ],
+    autoReviewRules: [],
     bubbleColor: "default",
     notifications: true,
     sounds: true,
@@ -398,6 +403,28 @@ ipcMain.handle("remote:test", async (_e, cfg) => {
 });
 ipcMain.on("remote:setTarget", (_e, target) => {
   store.update("settings", (s) => ({ ...defaultSettings(), ...s, executionTarget: target === "remote" ? "remote" : "local" }));
+});
+
+/* ---------------- Linux sandbox (WSL) — the agent's local Linux box ---------------- */
+const sandbox = require("./sandbox");
+ipcMain.handle("sandbox:probe", () => sandbox.probe());
+ipcMain.handle("sandbox:install", async () => {
+  try {
+    return await sandbox.install();
+  } catch (err) {
+    return { ok: false, note: String(err?.message || err).slice(0, 200) };
+  }
+});
+ipcMain.handle("sandbox:reset", async () => {
+  try {
+    return await sandbox.reset();
+  } catch (err) {
+    return { ok: false, note: String(err?.message || err).slice(0, 200) };
+  }
+});
+ipcMain.on("sandbox:setTarget", (_e, target) => {
+  const next = target === "sandbox" ? "sandbox" : target === "remote" ? "remote" : "local";
+  store.update("settings", (s) => ({ ...defaultSettings(), ...s, executionTarget: next }));
 });
 
 /* Repo connectors */
@@ -548,8 +575,24 @@ ipcMain.handle("voice:transcribe", async (_e, { mediaId, mimeType }) => {
 });
 
 /* ---------------- IPC: agent turns ---------------- */
+// Additive migration: newly introduced tools become available to existing
+// installs whose saved settings predate them (user opt-outs still persist —
+// only ids missing entirely are added).
+const NEW_DEFAULT_TOOLS = [
+  "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll",
+  "browser_read", "browser_screenshot", "browser_close",
+  "store_write", "store_read", "store_list", "store_search", "store_versions", "store_delete",
+  "link_preview",
+];
+
+function migrateSettings(saved) {
+  const s = { ...defaultSettings(), ...saved };
+  s.agentTools = Array.from(new Set([...(Array.isArray(s.agentTools) ? s.agentTools : []), ...NEW_DEFAULT_TOOLS]));
+  return s;
+}
+
 ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mode }) => {
-  const settings = store.load("settings", defaultSettings());
+  const settings = migrateSettings(store.load("settings", defaultSettings()));
   const bots = store.load("bots", []);
   const memories = store.load("memories", []);
   const bot = bots.find((b) => b.id === botId) || null;
@@ -587,6 +630,32 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
     const id = `${crypto.randomUUID()}.png`;
     await fsp.writeFile(path.join(mediaDir(), id), primary.thumbnail.toPNG());
     return { ok: true, url: `emberling-media://${id}` };
+  };
+
+  // browser screenshots land in the same media store as app screenshots
+  const saveBrowserShot = async (pngBuffer) => {
+    const id = `${crypto.randomUUID()}.png`;
+    await fsp.writeFile(path.join(mediaDir(), id), pngBuffer);
+    return { ok: true, url: `emberling-media://${id}` };
+  };
+
+  // per-agent local store: isolated per bot, "default" for plain chats
+  const { AgentStore } = require("./agent-store");
+  const agentStore = new AgentStore(path.join(app.getPath("userData"), "agent-store"), botId);
+
+  // auto-review rules: user-defined patterns over tool name + arguments that
+  // allow / deny / force-ask before the approval mode applies
+  const resolveAutoReview = (toolName, args) => {
+    const rules = store.load("settings", defaultSettings()).autoReviewRules;
+    if (!Array.isArray(rules) || !rules.length) return null;
+    const haystack = (toolName + " " + JSON.stringify(args ?? {})).toLowerCase();
+    for (const rule of rules) {
+      const pattern = String(rule?.pattern || "").trim().toLowerCase();
+      if (!pattern) continue;
+      const hit = pattern.startsWith("/") ? safeRegexHit(pattern, haystack) : haystack.includes(pattern);
+      if (hit) return rule.action === "allow" || rule.action === "deny" || rule.action === "ask" ? rule.action : null;
+    }
+    return null;
   };
 
   const saveMemory = async (text) => {
@@ -656,6 +725,10 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
         getInteg,
         getRemote,
         store,
+        executionTarget: settings.executionTarget === "sandbox" ? "sandbox" : "local",
+        agentStore,
+        saveBrowserShot,
+        resolveAutoReview,
         tryIntegrationTool: async (call) => {
           // dispatch order: Section-A integrations → plugins → null (local)
           const viaInteg = await integTools.executeIntegrationTool(call, { getInteg, getRemote, store });
@@ -701,7 +774,16 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
 });
 
 function truncateMain(s, n) {
-  return String(s || "").length > n ? String(s).slice(0, n) + "…" : String(s || "");
+  return String(s || "").length > n ? String(s || "").slice(0, n) + "…" : String(s || "");
+}
+
+// auto-review /pattern/ syntax: invalid regexes simply never match
+function safeRegexHit(pattern, haystack) {
+  try {
+    return new RegExp(pattern.slice(1, -1), "i").test(haystack);
+  } catch {
+    return false;
+  }
 }
 
 const pendingForms = new Map();
@@ -757,7 +839,95 @@ function startAutomationScheduler() {
   if (automationTimer) return;
   automationTimer = setInterval(runDueAutomations, 30_000);
   if (automationTimer.unref) automationTimer.unref();
+  startAutomationWebhookServer();
 }
+
+/* ---------------- Automation webhooks ----------------
+ * POST http://127.0.0.1:<port>/webhook/<automationId>?key=<token> triggers an
+ * automation run — the original's CreateAutomationWebhookApiKey, local only.
+ * The server binds exclusively to loopback; each automation gets a random
+ * token shown once when webhooks are enabled for it. */
+let webhookServer = null;
+let webhookPort = null;
+
+function automationWebhookToken(a) {
+  const automations = store.load("automations", []);
+  const cur = automations.find((x) => x.id === a.id);
+  if (cur?.webhookKey) return cur.webhookKey;
+  const key = crypto.randomBytes(16).toString("hex");
+  store.update("automations", (list) => list.map((x) => (x.id === a.id ? { ...x, webhookKey: key } : x)));
+  return key;
+}
+
+// loopback-only listener; incoming POSTs trigger the matching automation
+function startAutomationWebhookServer() {
+  if (webhookServer) return;
+  const http = require("node:http");
+  webhookServer = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    const u = new URL(req.url || "/", "http://127.0.0.1");
+    if (req.method !== "POST" || !u.pathname.startsWith("/webhook/")) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ ok: false, error: "not found" }));
+      return;
+    }
+    const id = u.pathname.slice("/webhook/".length);
+    const key = u.searchParams.get("key") || "";
+    const automations = store.load("automations", []);
+    const a = automations.find((x) => x.id === id);
+    if (!a || !a.enabled || !a.webhook) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ ok: false, error: "no such webhook automation" }));
+      return;
+    }
+    if (!a.webhookKey || key !== a.webhookKey) {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ ok: false, error: "invalid webhook key" }));
+      return;
+    }
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      // bounded body: webhook payloads feed the prompt, never file uploads
+      const payload = body.slice(0, 4000);
+      res.end(JSON.stringify({ ok: true, triggered: a.name }));
+      const prompt = payload.trim() ? `${a.prompt}\n\nWebhook payload: ${payload.trim()}` : a.prompt;
+      try {
+        await runAutomationTurn({ ...a, prompt });
+      } catch (err) {
+        console.error("webhook automation failed:", err?.message);
+      }
+    });
+  });
+  webhookServer.on("error", (err) => {
+    console.warn("webhook server unavailable:", err?.message);
+    webhookServer = null;
+  });
+  webhookServer.listen(0, "127.0.0.1", () => {
+    webhookPort = webhookServer.address()?.port;
+  });
+}
+
+function webhookInfo() {
+  return webhookServer && webhookPort ? { port: webhookPort, url: `http://127.0.0.1:${webhookPort}/webhook/` } : null;
+}
+
+ipcMain.handle("automations:webhookEnable", (_e, { id, enable }) => {
+  const automations = store.load("automations", []);
+  const a = automations.find((x) => x.id === id);
+  if (!a) return { ok: false, error: "automation not found" };
+  let key = a.webhookKey;
+  if (enable && !key) {
+    key = crypto.randomBytes(16).toString("hex");
+    store.update("automations", (list) => list.map((x) => (x.id === id ? { ...x, webhook: true, webhookKey: key } : x)));
+  } else {
+    store.update("automations", (list) => list.map((x) => (x.id === id ? { ...x, webhook: !!enable } : x)));
+  }
+  const info = webhookInfo();
+  if (enable && !info) return { ok: true, enabled: true, url: null, note: "webhook listener starting — check again in a moment" };
+  return { ok: true, enabled: !!enable, url: enable && info ? `${info.url}${id}?key=${key}` : null };
+});
+ipcMain.handle("automations:webhookPort", () => webhookPort);
 
 async function runDueAutomations() {
   const automations = store.load("automations", []);

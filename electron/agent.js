@@ -213,6 +213,19 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
     ...TOOL_DEFS.filter((t) => enabled.has(t.function.name)),
     ...(extraToolDefs || []),
   ];
+  // sandbox execution target: the shell speaks POSIX bash inside the WSL box —
+  // tell the model so it emits bash, not PowerShell
+  if (toolContext?.executionTarget === "sandbox") {
+    for (const t of tools) {
+      if (t.function?.name === "run_command") {
+        t.function = {
+          ...t.function,
+          description:
+            "Run a shell command inside the agent's Linux sandbox (WSL) and return stdout/stderr (truncated to ~6000 chars). Use POSIX bash syntax (ls, cat, grep, apt, python3 — no PowerShell). Commands require user approval unless the approval mode allows them.",
+        };
+      }
+    }
+  }
   const knownNames = new Set(tools.map((t) => t.function.name));
 
   let finalText = "";

@@ -390,9 +390,46 @@ function ChatScreen() {
     return off;
   }, [voiceMode, settings.voice?.rate]);
 
+  // live streaming STT via the Web Speech API (the original's StreamStt):
+  // keyless, interim results, no recording round-trip. Falls back to the
+  // recorded-memo + Whisper path when the browser API is unavailable.
   const listenOnce = useCallback(async () => {
     if (!voiceModeRef.current) return;
     setVoiceBusy("listening");
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      const ok = await new Promise<boolean>((resolve) => {
+        try {
+          const rec = new SR();
+          rec.continuous = false;
+          rec.interimResults = true;
+          rec.lang = navigator.language || "en-US";
+          let finalText = "";
+          rec.onresult = (e: any) => {
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+            }
+          };
+          rec.onerror = () => resolve(false);
+          rec.onend = () => {
+            const text = String(finalText).trim();
+            if (text) {
+              setVoiceBusy("thinking");
+              send(text, []);
+            } else {
+              setVoiceBusy("idle");
+            }
+            resolve(true);
+          };
+          rec.start();
+          window.dispatchEvent(new CustomEvent("emberling:voice-recorder", { detail: { stop: () => { try { rec.stop(); } catch {} } } }));
+        } catch {
+          resolve(false);
+        }
+      });
+      if (ok) return;
+      setVoiceBusy("listening");
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
