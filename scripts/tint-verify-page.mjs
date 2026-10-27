@@ -45,7 +45,8 @@ const CASES = ${casesJson};
 function hexToRgb(hex){const v=hex.replace("#","");const s=v.length===3?v.split("").map(function(c){return c+c;}).join(""):v;const n=parseInt(s,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function rgbToHsl(r,g,b){r/=255;g/=255;b/=255;var max=Math.max(r,g,b),min=Math.min(r,g,b);var l=(max+min)/2;if(max===min)return[0,0,l];var d=max-min;var s=l>0.5?d/(2-max-min):d/(max+min);var h=max===r?((g-b)/d+(g<b?6:0)):max===g?((b-r)/d+2):((r-g)/d+4);return[h*60,s,l];}
 function hslToRgb(h,s,l){h=((h%360)+360)%360;var c=(1-Math.abs(2*l-1))*s;var x=c*(1-Math.abs(((h/60)%2)-1));var m=l-c/2;var t=[[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][Math.floor(h/60)%6];return[(t[0]+m)*255,(t[1]+m)*255,(t[2]+m)*255];}
-var MASCOT_BODY = { orby: rgbToHsl.apply(null, hexToRgb("#f54e00")), scout: rgbToHsl.apply(null, hexToRgb("#599ce7")), forge: rgbToHsl.apply(null, hexToRgb("#3fa266")), echo: rgbToHsl.apply(null, hexToRgb("#b48ead")), tempo: rgbToHsl.apply(null, hexToRgb("#f1b467")), sentry: rgbToHsl.apply(null, hexToRgb("#9386f2")) };
+function toHsl(rgb){var hsl=rgbToHsl.apply(null,rgb);return{h:hsl[0],s:hsl[1],l:hsl[2]};}
+var MASCOT_BODY = { orby: toHsl(hexToRgb("#f54e00")), scout: toHsl(hexToRgb("#599ce7")), forge: toHsl(hexToRgb("#3fa266")), echo: toHsl(hexToRgb("#b48ead")), tempo: toHsl(hexToRgb("#f1b467")), sentry: toHsl(hexToRgb("#9386f2")) };
 var cells = document.querySelectorAll(".cell");
 var pending = cells.length;
 cells.forEach(function (cell) {

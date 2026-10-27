@@ -4,7 +4,11 @@ import type { Bot } from "../types";
 import { IconPlus, IconTrash, IconBot } from "../components/Icons";
 import { DotlingFace, DOTLING_FACES } from "../components/Brand";
 
-const COLORS = ["#126fd4", "#0d9655", "#7442d1", "#d2550a", "#c82532", "#0d9381", "#c82779", "#86592e"];
+// Presets from the Emberling brand palette (brand, satellite, the six Dotling
+// identity colors, blush, danger, paper). The surface colors ink #141414 and
+// pane #181818 are intentionally absent — as body tints they'd vanish against
+// the dark UI.
+const COLORS = ["#f54e00", "#ff6a24", "#599ce7", "#3fa266", "#f1b467", "#b48ead", "#9386f2", "#e0566f", "#e34671", "#f0f0f0"];
 
 // Block B12: pick which installed skills this bot follows
 function SkillPicker({ selected, onToggle }: { selected: string[]; onToggle: (id: string) => void }) {
