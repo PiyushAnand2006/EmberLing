@@ -69,8 +69,18 @@ function AutomationEditor({ automation, onClose }: { automation: Automation; onC
               ))}
             </select>
           </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+            <div>
+              <div style={{ fontSize: 13 }}>Notify me when it finishes</div>
+              <div style={{ fontSize: 11, color: "var(--cursor-text-tertiary)" }}>
+                Windows toast on completion or failure. The run itself is always recorded in the automation's chat.
+              </div>
+            </div>
+            <button className={`toggle${draft.notify !== false ? " on" : ""}`} onClick={() => setDraft({ ...draft, notify: draft.notify === false })} />
+          </div>
           <div style={{ fontSize: 12, color: "var(--cursor-text-tertiary)", marginTop: 10 }}>
-            Runs while the app is open (tray counts). Results appear in a dedicated chat with a notification.
+            Runs while the app is open (tray counts) — including in the Dotling's VM when the Linux sandbox is on. Missed schedules are caught up on the
+            next launch. Results and failures always appear in the dedicated chat.
           </div>
         </div>
         <div className="modal-footer">
@@ -97,7 +107,11 @@ export function AutomationsScreen() {
           <DotlingFace face="tempo" size={60} />
           <h2 style={{ margin: 0 }}>Automations</h2>
         </div>
-        <div className="screen-sub">Scheduled prompts that run on their own — like the original's routines and Slack/repo triggers, driven locally.</div>
+        <div className="screen-sub">
+          Scheduled prompts that run on their own — like the original's routines and Slack/repo triggers, driven locally. Runs land in their own chat
+          with a toast on completion or failure; schedules missed while the app was closed are caught up on the next launch. With the Linux sandbox on,
+          each Dotling runs inside its own VM, approval-free.
+        </div>
         <div style={{ marginBottom: 14 }}>
           <button
             className="btn primary"

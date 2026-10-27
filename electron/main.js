@@ -1062,14 +1062,43 @@ async function runAutomationTurn(a) {
       )
     );
     store.onRebuild?.();
-    if (Notification.isSupported()) {
-      const n = new Notification({ title: `Automation: ${a.name}`, body: (result.text || "ran").slice(0, 120) });
-      n.on("click", () => focusMain(`chat/${conv.id}`));
-      n.show();
-    }
+    automationNotify(a, `Automation: ${a.name}`, (result.text || "ran").slice(0, 120), conv.id);
   } catch (err) {
     console.error("automation failed", a.name, err);
+    // failures are surfaced, not swallowed: the conversation gets an error
+    // entry (+unread) and the user gets a failure toast (when enabled)
+    const detail = String(err?.message || err).slice(0, 300);
+    store.update("conversations", (list) =>
+      list.map((c) =>
+        c.id === conv.id
+          ? {
+              ...c,
+              unread: (c.unread || 0) + 1,
+              updatedAt: Date.now(),
+              messages: [
+                ...c.messages,
+                { role: "user", content: a.prompt, ts: Date.now(), automation: true },
+                { role: "assistant", content: `⚠️ Automation failed: ${detail}`, ts: Date.now(), automation: true, error: detail },
+              ],
+            }
+          : c
+      )
+    );
+    store.onRebuild?.();
+    automationNotify(a, `Automation failed: ${a.name}`, detail, conv.id);
   }
+}
+
+// Automation completion/failure toast — respects the global notifications
+// toggle and the per-automation notify switch (default on). Clicking opens
+// the automation's conversation.
+function automationNotify(a, title, body, convId) {
+  const settings = { ...defaultSettings(), ...store.load("settings", {}) };
+  if (settings.notifications === false || a.notify === false) return;
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title, body });
+  n.on("click", () => focusMain(`chat/${convId}`));
+  n.show();
 }
 
 /* ---------------- IPC: MCP servers ---------------- */

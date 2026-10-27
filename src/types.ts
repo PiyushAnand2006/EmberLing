@@ -120,6 +120,8 @@ export interface Automation {
   /** webhook trigger (POST /webhook/<id>?key=<token> on loopback) */
   webhook?: boolean;
   webhookKey?: string;
+  /** completion/failure toast (default on; the conversation always records the run) */
+  notify?: boolean;
 }
 
 export interface ProviderCreds {
