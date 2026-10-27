@@ -15,6 +15,17 @@ function main() {
   assert.strictEqual(sandbox.isWinAbsPath("relative/path"), false);
   console.log("path translation OK");
 
+  // per-Dotling VM naming: each bot scope maps to its own distro name
+  assert.strictEqual(sandbox.scopeDistroName("default"), "emberling-default");
+  assert.strictEqual(sandbox.scopeDistroName("bot-1234-abcd"), "emberling-bot-1234-abcd");
+  try {
+    sandbox.scopeDistroName("bad scope; rm -rf");
+    assert.fail("invalid scope must throw");
+  } catch (e) {
+    assert.ok(/invalid sandbox scope/.test(e.message));
+  }
+  console.log("per-Dotling VM naming OK");
+
   // script guards
   (async () => {
     try {

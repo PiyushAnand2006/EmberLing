@@ -11,6 +11,7 @@ const crypto = require("node:crypto");
 const store = require("./store");
 const { PROVIDERS, providerById } = require("./providers");
 const { runAgentTurn } = require("./agent");
+const { scopeId } = require("./agent-store");
 
 // scheme privileges must be registered before app is ready
 require("electron").protocol.registerSchemesAsPrivileged([
@@ -726,6 +727,8 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
         getRemote,
         store,
         executionTarget: settings.executionTarget === "sandbox" ? "sandbox" : "local",
+        // per-Dotling VMs: each bot gets its own WSL distro, cloned lazily
+        sandboxScope: botId ? agentStoreScope(botId) : "default",
         agentStore,
         saveBrowserShot,
         resolveAutoReview,
@@ -928,6 +931,21 @@ ipcMain.handle("automations:webhookEnable", (_e, { id, enable }) => {
   return { ok: true, enabled: !!enable, url: enable && info ? `${info.url}${id}?key=${key}` : null };
 });
 ipcMain.handle("automations:webhookPort", () => webhookPort);
+ipcMain.handle("automations:runNow", async (_e, id) => {
+  const automations = store.load("automations", []);
+  const a = automations.find((x) => x.id === id);
+  if (!a) return { ok: false, error: "automation not found" };
+  if (activeTurns.has("automation:" + id)) return { ok: false, error: "already running" };
+  activeTurns.set("automation:" + id, new AbortController());
+  try {
+    await runAutomationTurn(a);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err).slice(0, 200) };
+  } finally {
+    activeTurns.delete("automation:" + id);
+  }
+});
 
 async function runDueAutomations() {
   const automations = store.load("automations", []);
@@ -977,14 +995,25 @@ async function runAutomationTurn(a) {
   }
   const controller = new AbortController();
   try {
+    // When the Linux sandbox is enabled, automations execute inside their
+    // Dotling's own VM with no user interference — headless and approval-free
+    // (the VM boundary is the control). Local privileged actions keep the
+    // never-auto-approve rule for headless runs.
+    const sandboxTarget = settings.executionTarget === "sandbox";
     const result = await runAgentTurn({
       settings,
       history: [{ role: "user", content: a.prompt }],
-      approvalMode: "ask", // headless runs never auto-approve privileged tools
+      approvalMode: "ask", // headless runs never auto-approve host-side tools
       botInstructions: "",
       memories: store.load("memories", []),
       agentTools: settings.agentTools,
       signal: controller.signal,
+      toolContext: {
+        store,
+        executionTarget: sandboxTarget ? "sandbox" : "local",
+        sandboxScope: sandboxTarget ? scopeId(a.botId) : undefined,
+        resolveAutoReview: null,
+      },
       events: {
         onStatus: () => {},
         onDelta: () => {},

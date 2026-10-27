@@ -4,7 +4,6 @@ import type { Bot } from "../types";
 import { IconPlus, IconTrash, IconBot } from "../components/Icons";
 import { DotlingFace, DOTLING_FACES } from "../components/Brand";
 
-const EMOJIS = ["🤖", "🧠", "🛠️", "📊", "✍️", "🔬", "🎨", "💼", "🗺️", "🎧", "🌱", "⚡"];
 const COLORS = ["#126fd4", "#0d9655", "#7442d1", "#d2550a", "#c82532", "#0d9381", "#c82779", "#86592e"];
 
 // Block B12: pick which installed skills this bot follows
@@ -112,6 +111,15 @@ function BotEditor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const [draft, setDraft] = useState<Bot>(bot);
   const [knowledgeName, setKnowledgeName] = useState("");
   const [knowledgeText, setKnowledgeText] = useState("");
+  const [hexText, setHexText] = useState(bot.color);
+
+  // keep the hex field in sync when the color changes elsewhere (presets, eyedropper)
+  useEffect(() => setHexText(draft.color), [draft.color]);
+  const applyHex = (v: string) => {
+    setHexText(v);
+    const m = v.trim().match(/^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/);
+    if (m) setDraft((d) => ({ ...d, color: "#" + m[1] }));
+  };
 
   const save = () => {
     if (!draft.name.trim()) return;
@@ -135,7 +143,7 @@ function BotEditor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
               className="bot-avatar"
               style={draft.face ? { background: "#1c1c1c", border: "1px solid var(--cursor-stroke-tertiary)" } : { background: draft.color }}
             >
-              {draft.face ? <DotlingFace face={draft.face} size={44} /> : draft.emoji}
+              {draft.face ? <DotlingFace face={draft.face} size={44} color={draft.color} /> : draft.emoji}
             </div>
             <div style={{ flex: 1 }}>
               <input className="text-input" style={{ width: "100%" }} placeholder="Bot name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
@@ -150,7 +158,7 @@ function BotEditor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
                 className="chip-btn"
                 title={`${f.name} — ${f.role}`}
                 style={draft.face === f.id ? { borderColor: "var(--cursor-accent)" } : undefined}
-                onClick={() => setDraft({ ...draft, face: f.id })}
+                onClick={() => setDraft({ ...draft, face: f.id, color: f.color })}
               >
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <DotlingFace face={f.id} size={22} /> {f.name}
@@ -158,28 +166,30 @@ function BotEditor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
               </button>
             ))}
           </div>
-          <div style={{ marginBottom: 8, fontSize: 12, color: "var(--cursor-text-tertiary)" }}>…or an emoji</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-            {EMOJIS.map((e) => (
-              <button
-                key={e}
-                className="chip-btn"
-                style={!draft.face && draft.emoji === e ? { borderColor: "var(--cursor-accent)" } : undefined}
-                onClick={() => setDraft({ ...draft, emoji: e, face: undefined })}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-          <div style={{ marginBottom: 8, fontSize: 12, color: "var(--cursor-text-tertiary)" }}>Color</div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <div style={{ marginBottom: 8, fontSize: 12, color: "var(--cursor-text-tertiary)" }}>Color — tints the face</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
             {COLORS.map((c) => (
               <button
                 key={c}
                 onClick={() => setDraft({ ...draft, color: c })}
-                style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color === c ? "2px solid #fff" : "1px solid var(--cursor-stroke-tertiary)" }}
+                style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color.toLowerCase() === c ? "2px solid #fff" : "1px solid var(--cursor-stroke-tertiary)" }}
               />
             ))}
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(draft.color) ? draft.color : "#f54e00"}
+              onChange={(e) => setDraft({ ...draft, color: e.target.value })}
+              title="Pick any color"
+              style={{ width: 26, height: 26, padding: 0, border: "1px solid var(--cursor-stroke-tertiary)", borderRadius: 7, background: "none", cursor: "pointer" }}
+            />
+            <input
+              className="text-input"
+              style={{ width: 96, fontFamily: "var(--cursor-font-family-mono)" }}
+              value={hexText}
+              onChange={(e) => applyHex(e.target.value)}
+              placeholder="#f54e00"
+              spellCheck={false}
+            />
           </div>
           <div style={{ marginBottom: 8, fontSize: 12, color: "var(--cursor-text-tertiary)" }}>Instructions — how this Bot should behave</div>
           <textarea
@@ -332,7 +342,7 @@ export function BotsScreen() {
       id: uid(),
       name: "",
       emoji: team ? "👥" : "🤖",
-      color: COLORS[0],
+      color: "#f54e00",
       face: "orby",
       instructions: "",
       knowledge: [],
@@ -376,7 +386,7 @@ export function BotsScreen() {
                   className="bot-avatar"
                   style={b.face ? { width: 40, height: 40, background: "#1c1c1c", border: "1px solid var(--cursor-stroke-tertiary)" } : { background: b.color, width: 36, height: 36, fontSize: 17 }}
                 >
-                  {b.face ? <DotlingFace face={b.face} size={40} /> : b.emoji}
+                  {b.face ? <DotlingFace face={b.face} size={40} color={b.color} /> : b.emoji}
                 </div>
                 <div className="bot-name" style={{ flex: 1 }}>
                   {b.name} {b.team && <span className="badge neutral" style={{ marginLeft: 6 }}>team</span>}

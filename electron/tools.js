@@ -520,16 +520,11 @@ function toolsRequiringApproval(name) {
  * The agent's bash flavor is signaled by rewriting the run_command tool
  * description (agent.js) so the model emits POSIX commands. */
 async function runToolInSandbox(name, args, ctx) {
-  // approval first — the same privileged set as local execution, with an
-  // explicit sandbox title so the user knows where the command will run
-  if (NEEDS_APPROVAL.has(name) && (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky")) {
-    const risky = name === "run_command" && RISKY_RE.test(String(args.command || ""));
-    if (ctx.approvalMode === "ask" || risky) {
-      const detail = name === "run_command" ? String(args.command || "") : String(args.path || "");
-      const ok = await ctx.approve({ tool: name, title: "Run in the Linux sandbox (WSL)", detail, kind: "command" });
-      if (!ok) return { ok: false, error: "User declined to run this in the sandbox." };
-    }
-  }
+  // No approval prompts inside a Dotling's VM: the WSL boundary is the
+  // security control (each agent gets its own distro). User deny rules still
+  // apply — resolveAutoReview already ran in executeTool before routing here.
+  // While the VM is not ready, execution falls back to this computer WITH the
+  // normal approval gating (the safe default for host-side actions).
   const state = await sandbox.probe();
   if (state.state !== "ready") {
     const fallback = await executeTool(callFor(name, args), { ...ctx, executionTarget: "local" });
@@ -538,10 +533,18 @@ async function runToolInSandbox(name, args, ctx) {
       note: `Linux sandbox not ready (${state.hint || state.state}) — ran on this computer instead.`,
     };
   }
+  const distro = ctx.sandboxScope ? await sandbox.ensureScopeDistro(ctx.sandboxScope) : state.distro;
+  if (!distro) {
+    const fallback = await executeTool(callFor(name, args), { ...ctx, executionTarget: "local" });
+    return {
+      ...fallback,
+      note: "Could not provision this Dotling's VM — ran on this computer instead.",
+    };
+  }
   switch (name) {
     case "run_command": {
       const script = validateScript(args.command);
-      return await sandbox.runInSandbox({ script, cwd: args.cwd, distro: state.distro, signal: ctx.signal });
+      return await sandbox.runInSandbox({ script, cwd: args.cwd, distro, signal: ctx.signal });
     }
     case "read_file": {
       const target = sandbox.winToWslPath(String(args.path || ""));
@@ -549,12 +552,12 @@ async function runToolInSandbox(name, args, ctx) {
       try {
         const r = await sandbox.runInSandbox({
           script: sandbox.shQuote("cat") + " " + sandbox.shQuote(target) + " > " + bridge.wslPath,
-          distro: state.distro,
+          distro,
           signal: ctx.signal,
         });
         if (r.exitCode !== 0) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
         const content = await fsp.readFile(bridge.hostPath, "utf8");
-        return { ok: true, content: truncate(content, 20000), sandbox: state.distro };
+        return { ok: true, content: truncate(content, 20000), sandbox: distro };
       } finally {
         await bridge.cleanup();
       }
@@ -568,11 +571,11 @@ async function runToolInSandbox(name, args, ctx) {
           script:
             sandbox.shQuote("mkdir") + " -p $(dirname " + sandbox.shQuote(target) + ") && " +
             sandbox.shQuote("cp") + " " + bridge.wslPath + " " + sandbox.shQuote(target),
-          distro: state.distro,
+          distro,
           signal: ctx.signal,
         });
         if (r.exitCode !== 0) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
-        return { ok: true, wrote: args.path, sandbox: state.distro };
+        return { ok: true, wrote: args.path, sandbox: distro };
       } finally {
         await bridge.cleanup();
       }
@@ -590,11 +593,11 @@ async function runToolInSandbox(name, args, ctx) {
       const target = sandbox.winToWslPath(String(args.path || ""));
       const r = await sandbox.runInSandbox({
         script: sandbox.shQuote("ls") + " -la --color=never " + sandbox.shQuote(target) + " | head -500",
-        distro: state.distro,
+        distro,
         signal: ctx.signal,
       });
       if (r.exitCode !== 0 && !r.stdout.trim()) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
-      return { ok: true, entries: r.stdout.trim() || "(empty)", sandbox: state.distro };
+      return { ok: true, entries: r.stdout.trim() || "(empty)", sandbox: distro };
     }
     default:
       return null; // not a sandbox tool — caller executes locally

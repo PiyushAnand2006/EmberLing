@@ -4,7 +4,7 @@
 // Brand idea: "one bright dot in orbit" — the agent is a dot, the ring is its
 // reach, satellites are subagents/triggers (always brand orange). Geometry is
 // shared with assets/brand/*.svg; monoline stroke weight matches Icons.tsx.
-import React, { useId } from "react";
+import React, { useEffect, useId, useState } from "react";
 import type { BotFace } from "../types";
 import orby3dUrl from "../../assets/brand/characters/3d/orby.png";
 import scout3dUrl from "../../assets/brand/characters/3d/scout.png";
@@ -328,13 +328,13 @@ export function AgentDots({ size = 18 }: { size?: number }) {
 }
 
 // ——— Bot-face picker helpers ———
-export const DOTLING_FACES: { id: BotFace; name: string; role: string }[] = [
-  { id: "orby", name: "Orby", role: "The agent" },
-  { id: "scout", name: "Scout", role: "Web & search" },
-  { id: "forge", name: "Forge", role: "Code & terminal" },
-  { id: "echo", name: "Echo", role: "Memory & voice" },
-  { id: "tempo", name: "Tempo", role: "Automations" },
-  { id: "sentry", name: "Sentry", role: "Security" },
+export const DOTLING_FACES: { id: BotFace; name: string; role: string; color: string }[] = [
+  { id: "orby", name: "Orby", role: "The agent", color: "#f54e00" },
+  { id: "scout", name: "Scout", role: "Web & search", color: "#599ce7" },
+  { id: "forge", name: "Forge", role: "Code & terminal", color: "#3fa266" },
+  { id: "echo", name: "Echo", role: "Memory & voice", color: "#b48ead" },
+  { id: "tempo", name: "Tempo", role: "Automations", color: "#f1b467" },
+  { id: "sentry", name: "Sentry", role: "Security", color: "#9386f2" },
 ];
 
 // The 3D mascot renders (background-removed); aspect 557x395 ≈ 1.41:1.
@@ -347,12 +347,127 @@ const MASCOT_3D_URL: Record<BotFace, string> = {
   sentry: sentry3dUrl,
 };
 
+// ——— Hex tinting: recolor a mascot's body to any hex, preserving shading ———
+// Remaps only pixels inside the body's hue family (the white ring, dark gear,
+// eyes and other accents keep their colors); luminance scales multiplicatively
+// so the original shading survives.
+function hexToRgb(hex: string): [number, number, number] {
+  const v = hex.replace("#", "");
+  const s = v.length === 3 ? v.split("").map((c) => c + c).join("") : v;
+  const n = parseInt(s, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const t: [number, number, number][] = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]];
+  const [r, g, b] = t[Math.floor(h / 60) % 6];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+
+const MASCOT_BODY: Record<BotFace, { h: number; s: number; l: number }> = {
+  orby: toHsl(hexToRgb("#f54e00")),
+  scout: toHsl(hexToRgb("#599ce7")),
+  forge: toHsl(hexToRgb("#3fa266")),
+  echo: toHsl(hexToRgb("#b48ead")),
+  tempo: toHsl(hexToRgb("#f1b467")),
+  sentry: toHsl(hexToRgb("#9386f2")),
+};
+
+// tuple -> named HSL object (MASCOT_BODY's shape)
+function toHsl([r, g, b]: [number, number, number]): { h: number; s: number; l: number } {
+  const [h, s, l] = rgbToHsl(r, g, b);
+  return { h, s, l };
+}
+
+const tintCache = new Map<string, string>();
+
+function tintMascot(img: HTMLImageElement, face: BotFace, hex: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return MASCOT_3D_URL[face];
+  ctx.drawImage(img, 0, 0);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = image.data;
+  const body = MASCOT_BODY[face];
+  const [tH, tS, tL] = rgbToHsl(...hexToRgb(hex));
+  const sScale = body.s > 0.01 ? tS / body.s : 1;
+  const lScale = tL / body.l;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] === 0) continue;
+    const [h, s, l] = rgbToHsl(px[i], px[i + 1], px[i + 2]);
+    if (s < 0.15) continue; // neutrals (ring, eyes, gear) stay untouched
+    const dist = 180 - Math.abs((Math.abs(h - body.h) % 360) - 180);
+    if (dist >= 55) continue; // outside the body hue family
+    const blend = dist <= 25 ? 1 : (55 - dist) / 30;
+    const ns = Math.min(1, s * sScale);
+    const nl = Math.min(1, Math.max(0, l * lScale));
+    const [nr, ng, nb] = hslToRgb(tH, ns, nl);
+    px[i] = Math.round(px[i] + (nr - px[i]) * blend);
+    px[i + 1] = Math.round(px[i + 1] + (ng - px[i + 1]) * blend);
+    px[i + 2] = Math.round(px[i + 2] + (nb - px[i + 2]) * blend);
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+function useTintedMascotUrl(face: BotFace, color?: string): string {
+  const raw = MASCOT_3D_URL[face];
+  const [url, setUrl] = useState(raw);
+  useEffect(() => {
+    if (!color) {
+      setUrl(raw);
+      return;
+    }
+    const key = `${face}|${color.toLowerCase()}`;
+    const cached = tintCache.get(key);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+    let alive = true;
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const out = tintMascot(img, face, color);
+        tintCache.set(key, out);
+        if (alive) setUrl(out);
+      } catch {
+        if (alive) setUrl(raw);
+      }
+    };
+    img.src = raw;
+    return () => {
+      alive = false;
+    };
+  }, [face, color, raw]);
+  return url;
+}
+
 /** Renders a Dotling by face id — the 3D mascot art; falls back to Orby.
+ *  `color` (any hex) tints the body while keeping shading and accents.
  *  Size is the box width; height follows the art's aspect ratio. */
-export function DotlingFace({ face, size = 36 }: { face: BotFace; size?: number }) {
+export function DotlingFace({ face, size = 36, color }: { face: BotFace; size?: number; color?: string }) {
+  const url = useTintedMascotUrl(face, color);
   return (
     <img
-      src={MASCOT_3D_URL[face]}
+      src={url}
       width={size}
       height={Math.round(size / 1.41)}
       alt={DOTLING_FACES.find((f) => f.id === face)?.name || face}

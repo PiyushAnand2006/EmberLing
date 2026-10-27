@@ -145,6 +145,7 @@ const api = {
   automations: {
     webhookEnable: (id, enable) => ipcRenderer.invoke("automations:webhookEnable", { id, enable }),
     webhookPort: () => ipcRenderer.invoke("automations:webhookPort"),
+    runNow: (id) => ipcRenderer.invoke("automations:runNow", id),
   },
 
   updater: {

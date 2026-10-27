@@ -222,8 +222,8 @@ function SandboxCard() {
         </div>
         <div className="row-sub" style={{ color: "var(--cursor-text-tertiary)" }}>
           {enabled
-            ? "Agent commands and file tools run inside the sandbox. While it is unavailable they fall back to this computer with a note."
-            : "Give the agent an isolated Linux box for builds and experiments. The distribution downloads once, from Settings — nothing leaves this PC."}
+            ? "Each Dotling gets its own private Linux VM (cloned from this image on first use). Commands, automations and tests run inside the VM without asking — the VM boundary is the isolation. While a VM is unavailable, tools fall back to this computer with a note."
+            : "Give each Dotling an isolated Linux VM for builds, automations and experiments. The base image downloads once, from Settings — nothing leaves this PC."}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {probe?.state !== "ready" && (

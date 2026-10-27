@@ -151,6 +151,17 @@ export function AutomationsScreen() {
               >
                 Webhook
               </button>
+              <button
+                className="icon-btn"
+                title="Run now (uses this Dotling's VM when the Linux sandbox is on)"
+                onClick={async () => {
+                  const res = await window.emberling.automations.runNow(a.id);
+                  if (res.ok) toast(`"${a.name}" ran — check its conversation`);
+                  else toast(res.error || "Run failed");
+                }}
+              >
+                Run now
+              </button>
               <button className="icon-btn" title="Edit" onClick={() => setEditing(a)}>
                 Edit
               </button>

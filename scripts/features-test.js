@@ -137,6 +137,29 @@ async function main() {
   r = await executeTool({ name: "list_dir", args: { path: os.tmpdir() } }, mkCtx([{ pattern: "list_dir", action: "allow" }], "ask"));
   assert.strictEqual(approved, false, "allow rule skipped the prompt");
   assert.ok(r.ok && r.entries, "tool executed normally");
+  // ---------- per-Dotling VM: approval-free execution inside the sandbox ----------
+  const sandbox = require("../electron/sandbox");
+  const origProbe = sandbox.probe;
+  const origList = sandbox.listDistros;
+  const origRun = sandbox.runInSandbox;
+  sandbox.probe = async () => ({ state: "ready", distros: ["TestBase"], distro: "TestBase", hint: null });
+  sandbox.listDistros = async () => ["TestBase", "emberling-test"]; // clone already provisioned
+  let captured = null;
+  sandbox.runInSandbox = async (opts) => {
+    captured = opts;
+    return { exitCode: 0, stdout: "vm-out\n", stderr: "", sandbox: opts.distro };
+  };
+  approved = false;
+  r = await executeTool({ name: "run_command", args: { command: "echo vm" } }, { ...mkCtx([], "ask"), executionTarget: "sandbox", sandboxScope: "test" });
+  assert.strictEqual(approved, false, "VM execution must not prompt");
+  assert.strictEqual(r.exitCode, 0, "vm command ran");
+  assert.strictEqual(captured.script, "echo vm");
+  assert.strictEqual(captured.distro, "emberling-test", "per-Dotling distro selected");
+  sandbox.probe = origProbe;
+  sandbox.listDistros = origList;
+  sandbox.runInSandbox = origRun;
+  console.log("per-Dotling VM execution OK (no prompt, scoped distro)");
+
   console.log("auto-review rules OK (deny/ask/allow precedence)");
   process.exit(0);
 }

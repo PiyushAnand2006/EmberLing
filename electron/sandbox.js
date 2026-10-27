@@ -138,6 +138,64 @@ async function reset(distroName) {
   return { ok: r.exitCode === 0, note: r.exitCode === 0 ? [target, "unregistered"].join(" ") : detail };
 }
 
+/* ---------- per-Dotling VMs ----------
+ * Each agent (Dotling) gets its own private WSL distro, cloned lazily from
+ * the base image on first use — no per-bot download. Cloning = wsl --export
+ * the base to a temp tar + wsl --import under the bot's own name and install
+ * directory, so filesystems stay fully isolated between Dotlings. Commands
+ * inside a Dotling's VM need no user approval: the VM boundary is the
+ * security control (the same reasoning as the original's cloud box). */
+
+// Fixed literal base for per-bot install directories.
+const VM_DIR_BASE = "C:\\Users\\Public\\emberling-wsl";
+// scope ids come from agent-store scopeId: [a-z0-9-]{1,48}
+const SCOPE_RE = /^[a-z0-9-]{1,48}$/;
+
+function scopeDistroName(scope) {
+  const s = String(scope || "").trim().toLowerCase();
+  if (!SCOPE_RE.test(s)) throw new Error("invalid sandbox scope: " + s.slice(0, 40));
+  const name = "emberling-" + s;
+  if (!DISTRO_RE.test(name)) throw new Error("invalid distro name: " + name.slice(0, 40));
+  return name;
+}
+
+async function ensureScopeDistro(scope) {
+  const name = scopeDistroName(scope);
+  // dispatch through module.exports so tests can stub the WSL surface
+  const distros = await module.exports.listDistros();
+  if (distros.includes(name)) return name;
+  // need a ready base image to clone from
+  const base = await module.exports.probe();
+  if (base.state !== "ready") return null;
+  // export the base to a boundary-checked temp tar, then import per scope
+  const tmpRoot = fs.realpathSync(os.tmpdir());
+  const tarPath = path.resolve(tmpRoot, "emberling-sandbox-" + crypto.randomUUID() + ".tar");
+  if (!tarPath.startsWith(tmpRoot + path.sep)) throw new Error("clone tar escaped the temp directory");
+  const tarWsl = winToWslPath(tarPath);
+  if (!/^\/mnt\/[a-z]\/[^ ]*\.tar$/.test(tarWsl)) throw new Error("clone tar path failed validation");
+  const installDir = VM_DIR_BASE + "\\" + scope;
+  if (!/^[A-Za-z]:\\Users\\Public\\emberling-wsl\\[a-z0-9-]{1,48}$/.test(installDir)) {
+    throw new Error("clone install dir failed validation");
+  }
+  try {
+    const exp = await wsl("wsl.exe --export " + base.distro + " " + tarWsl, { timeoutMs: 600000 });
+    if (exp.exitCode !== 0) {
+      return null;
+    }
+    const imp = await wsl(
+      "wsl.exe --import " + name + " " + installDir + " " + tarWsl,
+      { timeoutMs: 600000 }
+    );
+    if (imp.exitCode !== 0) {
+      return null;
+    }
+    const verify = await wsl("wsl.exe -d " + name + " -- echo " + MARKER, { timeoutMs: 60000 });
+    return verify.exitCode === 0 && verify.stdout.includes(MARKER) ? name : null;
+  } finally {
+    fsp.unlink(tarPath).catch(() => {});
+  }
+}
+
 /* ---------- path translation ---------- */
 
 function winToWslPath(p) {
@@ -184,16 +242,27 @@ async function tempBridgeFile() {
 
 /**
  * Run a shell script inside the sandbox distro. The script has already passed
- * the run_command approval gate. Following the local shell-runner contract:
- * the script is persisted to a 0600 temp file inside the OS temp dir
- * (boundary-checked) and executed by translated path — script text never
- * enters any argument vector.
+ * auto-review (user deny rules); execution inside a Dotling's VM requires no
+ * approval prompt — the VM boundary is the security control. Following the
+ * local shell-runner contract: the script is persisted to a 0600 temp file
+ * inside the OS temp dir (boundary-checked) and executed by translated path —
+ * script text never enters any argument vector.
  */
-async function runInSandbox({ script, cwd, distro, timeoutMs, signal }) {
+async function runInSandbox({ script, cwd, scope, distro, timeoutMs, signal }) {
   if (!wslAvailable()) throw new Error("WSL is not installed");
   if (typeof script !== "string" || !script.trim()) throw new Error("empty script");
   if (script.length > MAX_SCRIPT_LEN) throw new Error("script too long for sandbox");
-  const effectiveDistro = validateDistro(distro || (await probe()).distro);
+
+  // distro resolution: explicit override > per-Dotling clone > shared base
+  let effectiveDistro = null;
+  if (distro) {
+    effectiveDistro = validateDistro(distro);
+  } else if (scope) {
+    effectiveDistro = await ensureScopeDistro(scope);
+    if (!effectiveDistro) throw new Error("Linux sandbox is not ready — no base distribution to clone from");
+  } else {
+    effectiveDistro = validateDistro((await module.exports.probe()).distro);
+  }
   if (!effectiveDistro) throw new Error("no Linux distribution registered");
 
   // optional working directory: a cd prefix, single-quoted (shQuote)
@@ -239,6 +308,8 @@ module.exports = {
   reset,
   listDistros,
   runInSandbox,
+  ensureScopeDistro,
+  scopeDistroName,
   tempBridgeFile,
   shQuote,
   winToWslPath,

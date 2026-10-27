@@ -115,6 +115,7 @@ declare global {
   automations: {
     webhookEnable(id: string, enable: boolean): Promise<{ ok: boolean; enabled?: boolean; url?: string | null; note?: string; error?: string }>;
     webhookPort(): Promise<number | null>;
+    runNow(id: string): Promise<{ ok: boolean; error?: string }>;
   };
   updater: {
     check(): Promise<{ ok: boolean; current: string; latest?: string; updateAvailable?: boolean; state?: string; portable: boolean; error?: string }>;

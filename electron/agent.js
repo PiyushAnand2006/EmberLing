@@ -221,7 +221,7 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
         t.function = {
           ...t.function,
           description:
-            "Run a shell command inside the agent's Linux sandbox (WSL) and return stdout/stderr (truncated to ~6000 chars). Use POSIX bash syntax (ls, cat, grep, apt, python3 — no PowerShell). Commands require user approval unless the approval mode allows them.",
+            "Run a shell command inside YOUR OWN private Linux VM (WSL) and return stdout/stderr (truncated to ~6000 chars). Use POSIX bash syntax (ls, cat, grep, apt, python3 — no PowerShell). The VM is your isolated workspace: commands run without user approval, so prefer doing the work directly.",
         };
       }
     }
