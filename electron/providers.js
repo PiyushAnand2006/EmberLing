@@ -45,11 +45,11 @@ const PROVIDERS = [
     url: "https://openrouter.ai/api/v1/chat/completions",
     keyUrl: "https://openrouter.ai/keys",
     models: [
-      { id: "deepseek/deepseek-chat-v3-0324:free", name: "DeepSeek V3", note: "free · strong" },
-      { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B", note: "free" },
-      { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash", note: "free · fast" },
-      { id: "qwen/qwen3-coder:free", name: "Qwen3 Coder", note: "free · code" },
-      { id: "mistralai/mistral-small-3.2-24b-instruct:free", name: "Mistral Small 3.2", note: "free" },
+      { id: "nvidia/nemotron-3.5-lightning:free", name: "Nemotron 3.5 Lightning", note: "free · fast" },
+      { id: "dots-studio/dots-3-note-preview:free", name: "Dots.3 Note", note: "free" },
+      { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B", note: "free" },
+      { id: "thinkingmachines/inkling:free", name: "Inkling", note: "free" },
+      { id: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B", note: "free · large" },
     ],
     supportsTools: true,
   },
@@ -202,11 +202,20 @@ async function streamChat({ config, messages, tools, signal, onDelta, onDone }) 
     });
   let res = await doFetch();
   // self-heal: free providers rotate their model rosters — when a saved model
-  // id disappears (404/400), retry once with the provider's default model
+  // id disappears (404/400), retry once with the provider's default model; if
+  // OpenRouter suggests a replacement slug in the 404 body, try that too
   if ((res.status === 404 || res.status === 400) && config.model !== config.fallbackModel) {
     const fallbackModel = config.fallbackModel || "";
     if (fallbackModel) {
       body.model = fallbackModel;
+      res = await doFetch();
+    }
+  }
+  if (res.status === 404) {
+    const text = await res.text().catch(() => "");
+    const suggested = (text.match(/use this slug instead:\s*([^\s"\\]+)/i) || [])[1];
+    if (suggested && suggested !== body.model) {
+      body.model = suggested;
       res = await doFetch();
     }
   }

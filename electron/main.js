@@ -136,7 +136,7 @@ function orbDefaultBounds() {
 }
 
 function createOrbWindow() {
-  const settings = { ...defaultSettings(), ...store.load("settings", {}) };
+  const settings = loadSettings();
   const wa = require("electron").screen.getPrimaryDisplay().workArea;
   const saved = settings.orbPosition || orbDefaultBounds();
   // clamp into the visible work area so a moved taskbar can't strand the mark
@@ -170,7 +170,7 @@ function createOrbWindow() {
     orbWindow.loadFile(path.join(rendererDir(), "orb.html"));
   }
   orbWindow.on("ready-to-show", () => {
-    const settings = store.load("settings", {});
+    const settings = loadSettings();
     if (settings.showOrb !== false) orbWindow.show();
   });
   orbWindow.on("closed", () => {
@@ -308,6 +308,16 @@ ipcMain.on("orb:files-dropped", (_e, files) => {
 /* ---------------- IPC: stores ---------------- */
 const secureStore = require("./secure-store");
 const COLLECTIONS = ["conversations", "bots", "memories", "automations", "settings", "integrations", "usage", "mcp"];
+
+// Main-process settings loader. Secrets at rest are DPAPI-encrypted
+// (enc:...); only the renderer's store:get path used to decrypt them, so
+// agent turns, automations and transcription were shipping encrypted keys
+// to providers (HTTP 401 "Missing Authentication header"). Every
+// main-process read of settings goes through this.
+function loadSettings() {
+  return secureStore.decryptDeep({ ...defaultSettings(), ...store.load("settings", {}) });
+}
+
 for (const col of COLLECTIONS) {
   ipcMain.handle(`store:get:${col}`, () => {
     const value = store.load(col, col === "conversations" ? [] : col === "settings" ? defaultSettings() : {});
@@ -385,7 +395,7 @@ function getInteg(name, field) {
   return field ? cfg[name]?.[field] : cfg[name];
 }
 function getRemote() {
-  const s = { ...defaultSettings(), ...store.load("settings", {}) };
+  const s = loadSettings();
   const r = s.remote || {};
   return {
     enabled: s.executionTarget === "remote" && !!r.host && !!r.user,
@@ -526,7 +536,7 @@ ipcMain.handle("license:activate", (_e, key) => {
   return res;
 });
 ipcMain.handle("license:status", () => {
-  const s = store.load("settings", defaultSettings());
+  const s = loadSettings();
   return { plus: !!s.plus, holder: s.plusKeyHolder || "" };
 });
 
@@ -598,7 +608,7 @@ ipcMain.handle("dialog:saveExport", async (_e, { defaultPath, content }) => {
 
 /* ---------------- IPC: voice ---------------- */
 ipcMain.handle("voice:transcribe", async (_e, { mediaId, mimeType }) => {
-  const settings = store.load("settings", defaultSettings());
+  const settings = loadSettings();
   const { transcribe } = require("./providers");
   try {
     const text = await transcribe({ settings, filePath: path.join(mediaDir(), mediaId), mimeType });
@@ -637,7 +647,7 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
   }
   let doneResolve = () => {};
   const done = new Promise((r) => (doneResolve = r));
-  const settings = migrateSettings(store.load("settings", defaultSettings()));
+  const settings = migrateSettings(loadSettings());
   const bots = store.load("bots", []);
   const memories = store.load("memories", []);
   const bot = bots.find((b) => b.id === botId) || null;
@@ -691,7 +701,7 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
   // auto-review rules: user-defined patterns over tool name + arguments that
   // allow / deny / force-ask before the approval mode applies
   const resolveAutoReview = (toolName, args) => {
-    const rules = store.load("settings", defaultSettings()).autoReviewRules;
+    const rules = loadSettings().autoReviewRules;
     if (!Array.isArray(rules) || !rules.length) return null;
     const haystack = (toolName + " " + JSON.stringify(args ?? {})).toLowerCase();
     for (const rule of rules) {
@@ -1058,7 +1068,7 @@ function automationDue(a, now) {
 }
 
 async function runAutomationTurn(a) {
-  const settings = store.load("settings", defaultSettings());
+  const settings = loadSettings();
   const conversations = store.load("conversations", []);
   let conv = conversations.find((c) => c.automationId === a.id);
   if (!conv) {
@@ -1154,7 +1164,7 @@ async function runAutomationTurn(a) {
 // toggle and the per-automation notify switch (default on). Clicking opens
 // the automation's conversation.
 function automationNotify(a, title, body, convId) {
-  const settings = { ...defaultSettings(), ...store.load("settings", {}) };
+  const settings = loadSettings();
   if (settings.notifications === false || a.notify === false) return;
   if (!Notification.isSupported()) return;
   const n = new Notification({ title, body });
@@ -1326,7 +1336,7 @@ ipcMain.handle("publish:publish", async (_e, botId) => {
   const res = await publish.publishBot({
     bot,
     runTurn: async (id, message, sessions) => {
-      const settings = store.load("settings", defaultSettings());
+      const settings = loadSettings();
       const sessionKey = "s";
       const history = sessions.get(sessionKey) || [];
       history.push({ role: "user", content: String(message).slice(0, 4000) });

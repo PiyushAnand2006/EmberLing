@@ -311,10 +311,13 @@ export function ChatView({ conversation, onSendRetry }: { conversation: Conversa
   }, [conversation?.messages]);
 
   if (!conversation || conversation.messages.length === 0) {
+    // the bound Dotling fronts its own chat: JIMI shows JIMI's face, not Orby's
+    const bot = bots.find((b) => b.id === conversation?.botId);
+    const botFace = bot?.face || "orby";
     return (
       <div className="empty-state" ref={scrollRef}>
-        <div style={{ filter: "drop-shadow(0 0 26px rgba(245, 78, 0, 0.28))" }}>
-          <DotlingFace face="orby" size={130} />
+        <div style={{ filter: bot?.face ? "none" : "drop-shadow(0 0 26px rgba(245, 78, 0, 0.28))" }}>
+          <DotlingFace face={botFace} size={130} />
         </div>
         <div className="greeting">{greetings}</div>
         <div className="sub">
