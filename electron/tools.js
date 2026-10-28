@@ -709,6 +709,12 @@ async function executeTool(call, ctx) {
   // a stop/abort must win over everything already queued — including an
   // approval the user clicked before hitting stop
   if (signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+  // self-protection firewall (the original's write-protection / workspace
+  // boundary, local edition): non-negotiable denials before any approval
+  const selfGuardDenial = ctx.selfGuard?.(name, args);
+  if (selfGuardDenial) {
+    return { ok: false, error: "Blocked by self-protection: the agent may not modify " + selfGuardDenial + "." };
+  }
   // auto-review rules (the original's auto-review selector): user-defined
   // patterns that allow / deny / force-ask for a tool before the approval mode
   const rule = ctx.resolveAutoReview?.(name, args);

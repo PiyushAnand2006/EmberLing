@@ -12,6 +12,16 @@ const store = require("./store");
 const { PROVIDERS, providerById } = require("./providers");
 const { runAgentTurn } = require("./agent");
 const { scopeId } = require("./agent-store");
+const guard = require("./guard");
+
+// self-protection firewall: the agent may not modify its own application
+// code, security settings, or kill itself (the original's write-protection /
+// workspace-boundary layer, local edition). One instance at module scope —
+// visible turns, headless automations and published bots all share it.
+const selfGuard = guard.createGuard({
+  roots: [path.dirname(process.execPath), process.resourcesPath || "", app.getAppPath()],
+  userDataDir: app.getPath("userData"),
+});
 
 // scheme privileges must be registered before app is ready
 require("electron").protocol.registerSchemesAsPrivileged([
@@ -767,6 +777,7 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
         agentStore,
         saveBrowserShot,
         resolveAutoReview,
+        selfGuard: (toolName, toolArgs) => selfGuard.check(toolName, toolArgs),
         screenState: (entry) => require("./screen-state").recordScreenState(path.join(app.getPath("userData"), "agent-store"), botId, entry),
         allAutomations: store.load("automations", []),
         saveAutomation: (a) => {
@@ -1085,6 +1096,7 @@ async function runAutomationTurn(a) {
         executionTarget: sandboxTarget ? "sandbox" : "local",
         sandboxScope: sandboxTarget ? scopeId(a.botId) : undefined,
         resolveAutoReview: null,
+        selfGuard: (toolName, toolArgs) => selfGuard.check(toolName, toolArgs),
       },
       events: {
         onStatus: () => {},
