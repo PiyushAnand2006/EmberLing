@@ -148,6 +148,10 @@ const api = {
     runNow: (id) => ipcRenderer.invoke("automations:runNow", id),
   },
 
+  botScreen: {
+    get: (botId) => ipcRenderer.invoke("bots:screen", botId),
+  },
+
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),
     install: () => ipcRenderer.send("updater:install"),

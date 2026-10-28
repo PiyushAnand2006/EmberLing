@@ -3,6 +3,7 @@ import { AppProvider, useApp, uid } from "./state";
 import type { Attachment, Conversation, Message } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
+import { BotScreenPanel } from "./components/BotScreen";
 import { Composer } from "./components/Composer";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { BotsScreen } from "./screens/BotsScreen";
@@ -650,16 +651,25 @@ function ChatScreen() {
           )}
         </div>
       )}
-      <ChatView
-        conversation={conversation}
-        onSendRetry={retry}
-      />
-      <Composer
-        busy={busy}
-        prefill={prefill}
-        onSend={(text, attachments, editMessageId) => send(text, attachments, { editMessageId })}
-        onStop={() => conversation && window.emberling.agent.stop(conversation.id)}
-      />
+      <div className={`chat-with-rail${conversation?.botId ? " has-rail" : ""}`}>
+        <div className="chat-rail-main">
+          <ChatView
+            conversation={conversation}
+            onSendRetry={retry}
+          />
+          <Composer
+            busy={busy}
+            prefill={prefill}
+            onSend={(text, attachments, editMessageId) => send(text, attachments, { editMessageId })}
+            onStop={() => conversation && window.emberling.agent.stop(conversation.id)}
+          />
+        </div>
+        {conversation?.botId && (
+          <aside className="bot-screen-rail">
+            <BotScreenPanel botId={conversation.botId} botName={bots.find((b) => b.id === conversation.botId)?.name || "Bot"} />
+          </aside>
+        )}
+      </div>
     </>
   );
 }

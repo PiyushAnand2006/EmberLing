@@ -117,6 +117,13 @@ declare global {
     webhookPort(): Promise<number | null>;
     runNow(id: string): Promise<{ ok: boolean; error?: string }>;
   };
+  botScreen: {
+    get(botId: string): Promise<{
+      screen: { ts?: number; tool?: string; cmd?: string; exitCode?: number | null; out?: string; trail?: { ts: number; tool?: string; cmd?: string; out?: string }[] };
+      acting: boolean;
+      routines: { id: string; name: string; enabled: boolean; schedule: string; nextJoin: string | null }[];
+    }>;
+  };
   updater: {
     check(): Promise<{ ok: boolean; current: string; latest?: string; updateAvailable?: boolean; state?: string; portable: boolean; error?: string }>;
     install(): void;

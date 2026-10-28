@@ -499,6 +499,43 @@ const TOOL_DEFS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "routine_list",
+      description: "List THIS bot's routines (recurring scheduled tasks). Routines run automatically on their schedule and appear on your virtual screen panel.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "routine_add",
+      description:
+        "Create a routine: a recurring task YOU run on a schedule (shown on your screen panel). Schedule text examples: 'every day at 9:00', 'weekdays at 8:45', 'every 30 minutes'.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "short routine name, e.g. 'Morning brief'" },
+          prompt: { type: "string", description: "what to do each run (a full instruction to yourself)" },
+          scheduleText: { type: "string", description: "e.g. 'every day at 9:00', 'weekdays at 8:45', 'every 30 minutes'" },
+        },
+        required: ["name", "prompt", "scheduleText"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "routine_remove",
+      description: "Remove one of THIS bot's routines by name. Requires approval.",
+      parameters: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+      },
+    },
+  },
 ];
 
 const NEEDS_APPROVAL = new Set(["run_command", "write_file", "edit_file", "focus_window", "type_text", "screen_click", "screen_scroll", "get_window_rect", "browser_click", "browser_type", "store_delete"]);
@@ -526,6 +563,18 @@ async function runToolInSandbox(name, args, ctx) {
   // While the VM is not ready, execution falls back to this computer WITH the
   // normal approval gating (the safe default for host-side actions).
   const state = await sandbox.probe();
+  const finish = (res, cmdHead) => {
+    // every VM action updates the Dotling's virtual screen
+    if (ctx.screenState && ctx.botId) {
+      ctx.screenState({
+        tool: name,
+        cmd: cmdHead ?? (name === "run_command" ? String(args.command || "") : `${name} ${args.path || args.cwd || ""}`),
+        exitCode: res?.exitCode ?? (res?.ok === false ? 1 : 0),
+        out: res?.stdout ?? res?.entries ?? res?.content ?? res?.error ?? "",
+      });
+    }
+    return res;
+  };
   if (state.state !== "ready") {
     const fallback = await executeTool(callFor(name, args), { ...ctx, executionTarget: "local" });
     return {
@@ -544,7 +593,7 @@ async function runToolInSandbox(name, args, ctx) {
   switch (name) {
     case "run_command": {
       const script = validateScript(args.command);
-      return await sandbox.runInSandbox({ script, cwd: args.cwd, distro, signal: ctx.signal });
+      return finish(await sandbox.runInSandbox({ script, cwd: args.cwd, distro, signal: ctx.signal }));
     }
     case "read_file": {
       const target = sandbox.winToWslPath(String(args.path || ""));
@@ -555,9 +604,9 @@ async function runToolInSandbox(name, args, ctx) {
           distro,
           signal: ctx.signal,
         });
-        if (r.exitCode !== 0) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
+        if (r.exitCode !== 0) return finish({ ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) }, "cat " + target);
         const content = await fsp.readFile(bridge.hostPath, "utf8");
-        return { ok: true, content: truncate(content, 20000), sandbox: distro };
+        return finish({ ok: true, content: truncate(content, 20000), sandbox: distro }, "cat " + target);
       } finally {
         await bridge.cleanup();
       }
@@ -574,8 +623,8 @@ async function runToolInSandbox(name, args, ctx) {
           distro,
           signal: ctx.signal,
         });
-        if (r.exitCode !== 0) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
-        return { ok: true, wrote: args.path, sandbox: distro };
+        if (r.exitCode !== 0) return finish({ ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) }, "cp -> " + target);
+        return finish({ ok: true, wrote: args.path, sandbox: distro }, "cp -> " + target);
       } finally {
         await bridge.cleanup();
       }
@@ -596,8 +645,8 @@ async function runToolInSandbox(name, args, ctx) {
         distro,
         signal: ctx.signal,
       });
-      if (r.exitCode !== 0 && !r.stdout.trim()) return { ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) };
-      return { ok: true, entries: r.stdout.trim() || "(empty)", sandbox: distro };
+      if (r.exitCode !== 0 && !r.stdout.trim()) return finish({ ok: false, error: (r.stderr || `exit ${r.exitCode}`).slice(0, 400) }, "ls " + target);
+      return finish({ ok: true, entries: r.stdout.trim() || "(empty)", sandbox: distro }, "ls " + target);
     }
     default:
       return null; // not a sandbox tool — caller executes locally
@@ -610,6 +659,30 @@ function callFor(name, args) {
 }
 
 const SANDBOX_TOOLS = new Set(["run_command", "read_file", "write_file", "edit_file", "list_dir"]);
+
+// schedule text -> Automation.schedule ("weekdays" runs Mon-Fri only)
+function parseScheduleText(text) {
+  const t = String(text || "").toLowerCase().trim();
+  let m = t.match(/weekdays\s+at\s+(\d{1,2})(?::(\d{2}))?/);
+  if (m) return { type: "weekdays", time: `${Math.min(23, Number(m[1])).toString().padStart(2, "0")}:${(m[2] ? Number(m[2]) : 0).toString().padStart(2, "0")}` };
+  m = t.match(/(every|each)\s+day\s+at\s+(\d{1,2})(?::(\d{2}))?/);
+  if (m) return { type: "daily", time: `${Math.min(23, Number(m[2])).toString().padStart(2, "0")}:${(m[3] ? Number(m[3]) : 0).toString().padStart(2, "0")}` };
+  m = t.match(/(every|each)\s+(\d{1,4})\s*minutes?/);
+  if (m) return { type: "minutes", minutes: Math.min(10080, Number(m[2]) || 60) };
+  m = t.match(/(every|each)\s+hour/);
+  if (m) return { type: "minutes", minutes: 60 };
+  return null;
+}
+
+function scheduleLabel(schedule) {
+  if (!schedule) return "";
+  if (schedule.type === "minutes") return `Every ${schedule.minutes || 60} min`;
+  const [h, mm] = (schedule.time || "09:00").split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const label = `${h12}:${String(mm || 0).padStart(2, "0")} ${ampm}`;
+  return schedule.type === "weekdays" ? `Weekdays at ${label}` : `Every day at ${label}`;
+}
 
 async function listDir(p) {
   const entries = await fsp.readdir(p, { withFileTypes: true });
@@ -842,6 +915,35 @@ async function executeTool(call, ctx) {
       }
       case "link_preview":
         return await linkPreview(args.url);
+      case "routine_list": {
+        const bots = ctx.allAutomations || [];
+        const mine = bots.filter((a) => (a.botId || "") === (ctx.botId || ""));
+        return { ok: true, routines: mine.map((a) => ({ name: a.name, enabled: a.enabled, schedule: a.scheduleText || scheduleLabel(a.schedule) })) };
+      }
+      case "routine_add": {
+        const schedule = parseScheduleText(String(args.scheduleText || ""));
+        if (!schedule) return { ok: false, error: "could not parse the schedule — try 'every day at 9:00', 'weekdays at 8:45' or 'every 30 minutes'" };
+        const id = require("node:crypto").randomUUID();
+        ctx.saveAutomation({
+          id,
+          name: String(args.name || "").slice(0, 80) || "Routine",
+          prompt: String(args.prompt || ""),
+          enabled: true,
+          schedule,
+          scheduleText: String(args.scheduleText || "").slice(0, 60),
+          botId: ctx.botId || "",
+          runImmediately: false,
+          notify: true,
+        });
+        return { ok: true, name: args.name, schedule: scheduleLabel(schedule), note: "the routine appears on your screen panel and runs on its schedule" };
+      }
+      case "routine_remove": {
+        const mine = (ctx.allAutomations || []).filter((a) => (a.botId || "") === (ctx.botId || ""));
+        const target = mine.find((a) => a.name.toLowerCase() === String(args.name || "").toLowerCase());
+        if (!target) return { ok: false, error: "no routine named \"" + String(args.name || "").slice(0, 60) + "\"" };
+        ctx.removeAutomation(target.id);
+        return { ok: true, removed: target.name };
+      }
       case "screen_click": {
         if (!computerUse.isSupported) return { ok: false, error: "input automation is Windows-only in this build" };
         if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
@@ -924,6 +1026,9 @@ const STATUS_BY_TOOL = {
   store_versions: "Reading your store",
   store_delete: "Updating your store",
   link_preview: "Previewing a link",
+  routine_list: "Listing routines",
+  routine_add: "Setting up a routine",
+  routine_remove: "Removing a routine",
   get_window_rect: "Using your computer",
   save_memory: "Saving a memory",
 };

@@ -324,7 +324,7 @@ function defaultSettings() {
       "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll",
       "browser_read", "browser_screenshot", "browser_close",
       "store_write", "store_read", "store_list", "store_search", "store_versions", "store_delete",
-      "link_preview",
+      "link_preview", "routine_list", "routine_add", "routine_remove",
     ],
     autoReviewRules: [],
     bubbleColor: "default",
@@ -606,7 +606,7 @@ const NEW_DEFAULT_TOOLS = [
   "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll",
   "browser_read", "browser_screenshot", "browser_close",
   "store_write", "store_read", "store_list", "store_search", "store_versions", "store_delete",
-  "link_preview",
+  "link_preview", "routine_list", "routine_add", "routine_remove",
 ];
 
 function migrateSettings(saved) {
@@ -749,12 +749,21 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
         getInteg,
         getRemote,
         store,
+        botId: botId || "",
         executionTarget: settings.executionTarget === "sandbox" ? "sandbox" : "local",
         // per-Dotling VMs: each bot gets its own WSL distro, cloned lazily
-        sandboxScope: botId ? agentStoreScope(botId) : "default",
+        sandboxScope: botId ? scopeId(botId) : "default",
         agentStore,
         saveBrowserShot,
         resolveAutoReview,
+        screenState: (entry) => require("./screen-state").recordScreenState(path.join(app.getPath("userData"), "agent-store"), botId, entry),
+        allAutomations: store.load("automations", []),
+        saveAutomation: (a) => {
+          store.update("automations", (list) => [...list.filter((x) => x.id !== a.id), a]);
+        },
+        removeAutomation: (id) => {
+          store.update("automations", (list) => list.filter((x) => x.id !== id));
+        },
         tryIntegrationTool: async (call) => {
           // dispatch order: Section-A integrations → plugins → null (local)
           const viaInteg = await integTools.executeIntegrationTool(call, { getInteg, getRemote, store });
@@ -970,6 +979,32 @@ ipcMain.handle("automations:runNow", async (_e, id) => {
   }
 });
 
+/* ---------------- Per-Dotling virtual screen ---------------- */
+ipcMain.handle("bots:screen", async (_e, botId) => {
+  const { readScreen, isActing } = require("./screen-state");
+  const screen = await readScreen(path.join(app.getPath("userData"), "agent-store"), botId);
+  const automations = store.load("automations", []).filter((a) => (a.botId || "") === (botId || ""));
+  return {
+    screen,
+    acting: isActing(screen),
+    routines: automations.map((a) => ({
+      id: a.id,
+      name: a.name,
+      enabled: a.enabled,
+      schedule: a.scheduleText || (a.schedule?.type === "minutes" ? `Every ${a.schedule.minutes || 60} min` : a.schedule?.type === "weekdays" ? `Weekdays at ${a.schedule.time}` : `Every day at ${a.schedule?.time || "09:00"}`),
+      nextJoin: a.enabled && a.schedule?.type !== "minutes" && a.schedule?.time ? nextJoinText(a.schedule) : null,
+    })),
+  };
+});
+
+function nextJoinText(schedule) {
+  const [h, m] = (schedule.time || "09:00").split(":").map(Number);
+  const next = new Date();
+  next.setHours(h, m, 0, 0);
+  if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+  return next.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
 async function runDueAutomations() {
   const automations = store.load("automations", []);
   const now = Date.now();
@@ -987,7 +1022,9 @@ function automationDue(a, now) {
   if (a.schedule?.type === "minutes") {
     return now - a.lastRun >= (a.schedule.minutes || 60) * 60_000;
   }
-  if (a.schedule?.type === "daily") {
+  if (a.schedule?.type === "daily" || a.schedule?.type === "weekdays") {
+    const d = new Date(now);
+    if (a.schedule.type === "weekdays" && (d.getDay() === 0 || d.getDay() === 6)) return false;
     const [h, m] = (a.schedule.time || "09:00").split(":").map(Number);
     const last = new Date(a.lastRun);
     const todayRun = new Date();
