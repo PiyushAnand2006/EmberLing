@@ -65,6 +65,9 @@ async function wsl(psCommand, { timeoutMs, signal } = {}) {
     const script =
       "$ErrorActionPreference='Stop';" +
       "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
+      // wsl.exe emits UTF-16LE when redirected, which PowerShell would decode
+      // as mojibake — WSL_UTF8=1 (documented) forces clean UTF-8 output
+      "$env:WSL_UTF8='1';" +
       psCommand;
     return await runShellScript({ script, signal: controller.signal });
   } catch (err) {
@@ -167,23 +170,25 @@ async function ensureScopeDistro(scope) {
   // need a ready base image to clone from
   const base = await module.exports.probe();
   if (base.state !== "ready") return null;
-  // export the base to a boundary-checked temp tar, then import per scope
+  // export the base to a boundary-checked temp tar, then import per scope.
+  // NOTE: --export/--import file arguments are interpreted by the WINDOWS-side
+  // wsl.exe — they must be Windows paths, quoted, with the parent directory
+  // created first (--import does not create parent chains).
   const tmpRoot = fs.realpathSync(os.tmpdir());
   const tarPath = path.resolve(tmpRoot, "emberling-sandbox-" + crypto.randomUUID() + ".tar");
   if (!tarPath.startsWith(tmpRoot + path.sep)) throw new Error("clone tar escaped the temp directory");
-  const tarWsl = winToWslPath(tarPath);
-  if (!/^\/mnt\/[a-z]\/[^ ]*\.tar$/.test(tarWsl)) throw new Error("clone tar path failed validation");
   const installDir = VM_DIR_BASE + "\\" + scope;
   if (!/^[A-Za-z]:\\Users\\Public\\emberling-wsl\\[a-z0-9-]{1,48}$/.test(installDir)) {
     throw new Error("clone install dir failed validation");
   }
+  fs.mkdirSync(VM_DIR_BASE, { recursive: true });
   try {
-    const exp = await wsl("wsl.exe --export " + base.distro + " " + tarWsl, { timeoutMs: 600000 });
+    const exp = await wsl("wsl.exe --export " + base.distro + " '" + tarPath + "'", { timeoutMs: 600000 });
     if (exp.exitCode !== 0) {
       return null;
     }
     const imp = await wsl(
-      "wsl.exe --import " + name + " " + installDir + " " + tarWsl,
+      "wsl.exe --import " + name + " '" + installDir + "' '" + tarPath + "'",
       { timeoutMs: 600000 }
     );
     if (imp.exitCode !== 0) {
