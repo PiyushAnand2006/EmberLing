@@ -610,11 +610,30 @@ function ChatScreen() {
               icon: conversation?.botId === b.id ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
               onClick: () =>
                 conversation &&
-                app.setConversations((list) => list.map((c) => (c.id === conversation.id ? { ...c, botId: b.id } : c))),
+                app.setConversations((list) =>
+                  list.map((c) =>
+                    c.id === conversation.id
+                      ? {
+                          ...c,
+                          botId: b.id,
+                          // an untitled chat adopts the bot's name for the sidebar
+                          title: !c.messages.length && (!c.title || c.title === "New chat") ? `${b.emoji} ${b.name}` : c.title,
+                        }
+                      : c
+                    )
+                  ),
             })),
           ]}
         />
-        <div className="header-title">{conversation?.title || "New chat"}</div>
+        <div className="header-title">
+          {(() => {
+            // the bot chip already names the bot — don't repeat it when the
+            // conversation title is just the bot's name (e.g. bot-created chats)
+            const raw = conversation?.title || "New chat";
+            const dup = activeBot && (raw === activeBot.name || raw === `${activeBot.emoji} ${activeBot.name}` || raw.replace(/^[^\w]+/, "").trim() === activeBot.name);
+            return dup ? "" : raw;
+          })()}
+        </div>
         <button
           className={`icon-btn${teachRef.current ? " active" : ""}`}
           title="Learn from demonstration — record your screen"
