@@ -42,23 +42,24 @@ const PROFILE_DIR = "C:\\Users\\Public\\emberling-browser-profile";
 
 // Constant launch scripts — one per browser. Start-Process returns
 // immediately; the port shows up in the profile's DevToolsActivePort file.
+// -PassThru prints the browser pid so stop/abort can kill what we launched.
 const LAUNCH_SCRIPTS = {
   chrome:
-    "Start-Process -FilePath 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
+    "(Start-Process -FilePath 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
   chrome86:
-    "Start-Process -FilePath 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
+    "(Start-Process -FilePath 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
   edge86:
-    "Start-Process -FilePath 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
+    "(Start-Process -FilePath 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
   edge:
-    "Start-Process -FilePath 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
+    "(Start-Process -FilePath 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
 };
 
 function findBrowser() {
@@ -79,12 +80,54 @@ function validHttpUrl(raw) {
   }
 }
 
-let session = null; // { cdp, browserName, port }
+let session = null; // { cdp, browserName, port, browserPid, launched }
+let turnSignal = null; // the agent turn's AbortSignal, set per tool call
+
+// AbortError helper: stopping a turn must stop browser work immediately.
+function abortError() {
+  const e = new Error("aborted");
+  e.name = "AbortError";
+  return e;
+}
+
+function throwIfAborted() {
+  if (turnSignal?.aborted) {
+    cleanup(true);
+    throw abortError();
+  }
+}
+
+// Close the CDP session; kill=true terminates every browser process bound to
+// our automation profile. The profile directory is exclusively ours (fixed
+// literal path), so anything carrying its marker was launched by us — in this
+// run or any earlier one — and killing it can never touch a user browser.
+function cleanup(kill) {
+  try { session?.cdp.close(); } catch {}
+  if (kill) {
+    runShellScript({
+      script:
+        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*emberling-browser-profile*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+    }).catch(() => {});
+  }
+  session = null;
+}
+
+function setSignal(signal) {
+  turnSignal = signal;
+  // stop arriving while idle in a tool: tear down immediately (the signal
+  // itself stays aborted so every later throwIfAborted() keeps firing)
+  if (signal) {
+    signal.addEventListener("abort", () => {
+      cleanup(true);
+    }, { once: true });
+  }
+}
 
 async function discoverPort() {
   // port=0 makes Chromium write the chosen port to DevToolsActivePort
   const portFile = path.join(PROFILE_DIR, "DevToolsActivePort");
   for (let i = 0; i < 40; i++) {
+    throwIfAborted();
     try {
       const text = await fsp.readFile(portFile, "utf8");
       const port = String(text || "").split("\n")[0].trim();
@@ -167,10 +210,17 @@ function connect(wsUrl) {
 }
 
 async function ensureSession() {
+  throwIfAborted();
+  // quick liveness probe — a browser that is shutting down (e.g. killed by a
+  // previous aborted turn) still accepts the socket but never answers
+  const ping = (cdp, ms = 3000) =>
+    Promise.race([
+      cdp.send("Runtime.evaluate", { expression: "1", returnByValue: true }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("ping timeout")), ms)),
+    ]);
   if (session) {
-    // liveness check: page still responds?
     try {
-      await session.cdp.send("Runtime.evaluate", { expression: "1", returnByValue: true });
+      await ping(session.cdp);
       return session;
     } catch {
       try { session.cdp.close(); } catch {}
@@ -182,35 +232,47 @@ async function ensureSession() {
   await fsp.mkdir(PROFILE_DIR, { recursive: true }).catch(() => {});
   const oldPort = await discoverPort().catch(() => null);
   if (oldPort) {
-    // a browser from a previous session may still be alive — try to reuse
+    // a browser from a previous session may still be alive — try to reuse,
+    // but only if it answers a quick ping (a dying one would hang the turn)
     try {
       const list = await httpGetJson(oldPort, "/json/list");
       const page = Array.isArray(list) ? list.find((t) => t.type === "page") : null;
       if (page) {
         const cdp = await connect(page.webSocketDebuggerUrl);
-        session = { cdp, browserName: browser.name, port: oldPort };
+        await ping(cdp);
+        // reused browser: never kill on abort (not ours), just detach
+        session = { cdp, browserName: browser.name, port: oldPort, browserPid: null, launched: false };
         return session;
       }
     } catch {
       // stale browser — fall through to a fresh launch
     }
   }
-  // launch via the trusted runner with a constant literal script
-  await runShellScript({ script: LAUNCH_SCRIPTS[browser.key] });
-  const port = await discoverPort();
-  // wait for a page target
+  // launch via the trusted runner; the script prints the browser pid.
+  // A previous run's kill can leave a stale DevToolsActivePort file — clear
+  // it so the wait loop only ever sees the fresh browser's port.
+  const portFile = path.join(PROFILE_DIR, "DevToolsActivePort");
+  await fsp.unlink(portFile).catch(() => {});
+  const launched = await runShellScript({ script: LAUNCH_SCRIPTS[browser.key] });
+  const pidMatch = String(launched.stdout || "").trim().match(/\d+/);
+  // wait for a page target, re-reading the (fresh) port file each iteration
   let page = null;
-  for (let i = 0; i < 20; i++) {
-    try {
-      const list = await httpGetJson(port, "/json/list");
-      page = Array.isArray(list) ? list.find((t) => t.type === "page") : null;
-      if (page) break;
-    } catch {}
+  let port = null;
+  for (let i = 0; i < 40; i++) {
+    throwIfAborted();
+    port = (await discoverPort().catch(() => null)) || null;
+    if (port) {
+      try {
+        const list = await httpGetJson(port, "/json/list");
+        page = Array.isArray(list) ? list.find((t) => t.type === "page") : null;
+        if (page) break;
+      } catch {}
+    }
     await new Promise((r) => setTimeout(r, 250));
   }
   if (!page) throw new Error("browser started but no page target appeared");
   const cdp = await connect(page.webSocketDebuggerUrl);
-  session = { cdp, browserName: browser.name, port };
+  session = { cdp, browserName: browser.name, port, browserPid: pidMatch ? Number(pidMatch[0]) : null, launched: true };
   return session;
 }
 
@@ -260,31 +322,80 @@ async function evaluate(cdp, expression) {
   return r.result?.value;
 }
 
+/* ---------- abort-aware primitives ---------- */
+
+// One CDP command, raced against the turn's abort signal: stopping a turn
+// must interrupt in-flight browser work, not wait it out.
+async function cdp(method, params = {}) {
+  if (!session) throw abortError();
+  if (turnSignal?.aborted) {
+    cleanup(true);
+    throw abortError();
+  }
+  let onAbort = null;
+  try {
+    return await Promise.race([
+      session.cdp.send(method, params),
+      new Promise((_, reject) => {
+        onAbort = () => {
+          cleanup(true);
+          reject(abortError());
+        };
+        turnSignal?.addEventListener("abort", onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (onAbort && turnSignal) turnSignal.removeEventListener("abort", onAbort);
+  }
+}
+
+async function sleep(ms) {
+  throwIfAborted();
+  await Promise.race([
+    new Promise((r) => setTimeout(r, ms)),
+    new Promise((_, reject) => {
+      const onAbort = () => reject(abortError());
+      turnSignal?.addEventListener("abort", onAbort, { once: true });
+      setTimeout(() => turnSignal?.removeEventListener?.("abort", onAbort), ms);
+    }),
+  ]).catch((e) => {
+    if (e?.name === "AbortError") throw e;
+  });
+}
+
 /* ---------- tool implementations ---------- */
 
-async function open(rawUrl) {
+async function open(rawUrl, signal) {
+  setSignal(signal);
+  throwIfAborted();
   const u = validHttpUrl(rawUrl);
   if (!u) throw new Error("browser needs a valid http(s) URL");
   const s = await ensureSession();
-  await s.cdp.send("Page.navigate", { url: u.toString() });
-  await new Promise((r) => setTimeout(r, 1200));
+  await cdp("Page.navigate", { url: u.toString() });
+  await sleep(1200);
   const snap = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   return { ok: true, url: snap.url, title: snap.title, browser: s.browserName, elements: snap.elements };
 }
 
-async function snapshot() {
+async function snapshot(signal) {
+  setSignal(signal);
+  throwIfAborted();
   const s = await ensureSession();
   const snap = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   return { ok: true, ...snap, browser: s.browserName };
 }
 
-async function read() {
+async function read(signal) {
+  setSignal(signal);
+  throwIfAborted();
   const s = await ensureSession();
   const text = await evaluate(s.cdp, "(document.body ? document.body.innerText : '').replace(/\\n{3,}/g,'\\n\\n').slice(0,12000)");
   return { ok: true, url: await evaluate(s.cdp, "location.href"), text };
 }
 
-async function click({ index }) {
+async function click({ index }, signal) {
+  setSignal(signal);
+  throwIfAborted();
   const s = await ensureSession();
   const snap = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   const el = snap.elements.find((e) => e.index === Number(index));
@@ -295,14 +406,16 @@ async function click({ index }) {
   );
   if (!rectJson) throw new Error("element #" + index + " disappeared");
   const { x, y } = JSON.parse(rectJson);
-  await s.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-  await s.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
-  await new Promise((r) => setTimeout(r, 900));
+  await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  await sleep(900);
   const after = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   return { ok: true, clicked: el.text || el.tag, url: after.url, title: after.title, elements: after.elements };
 }
 
-async function typeText({ index, text, submit }) {
+async function typeText({ index, text, submit }, signal) {
+  setSignal(signal);
+  throwIfAborted();
   const s = await ensureSession();
   const snap = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   const el = snap.elements.find((e) => e.index === Number(index));
@@ -313,39 +426,45 @@ async function typeText({ index, text, submit }) {
   );
   if (!rectJson) throw new Error("element #" + index + " disappeared");
   const { x, y } = JSON.parse(rectJson);
-  await s.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-  await s.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
-  await new Promise((r) => setTimeout(r, 250));
-  await s.cdp.send("Input.insertText", { text: String(text ?? "") });
+  await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  await sleep(250);
+  await cdp("Input.insertText", { text: String(text ?? "") });
   if (submit) {
-    await s.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
-    await s.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-    await new Promise((r) => setTimeout(r, 1200));
+    await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+    await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await sleep(1200);
   }
   const after = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   return { ok: true, url: after.url, title: after.title, elements: after.elements };
 }
 
-async function scroll({ direction, amount }) {
+async function scroll({ direction, amount }, signal) {
+  setSignal(signal);
+  throwIfAborted();
   const s = await ensureSession();
   const dy = (direction === "up" ? -1 : 1) * Math.min(Math.max(Number(amount) || 5, 1), 25) * 100;
-  await s.cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 640, y: 400, deltaX: 0, deltaY: dy });
-  await new Promise((r) => setTimeout(r, 400));
+  await cdp("Input.dispatchMouseEvent", { type: "mouseWheel", x: 640, y: 400, deltaX: 0, deltaY: dy });
+  await sleep(400);
   const snap = JSON.parse(await evaluate(s.cdp, SNAPSHOT_JS));
   return { ok: true, url: snap.url, elements: snap.elements };
 }
 
-async function screenshot() {
+async function screenshot(signal) {
+  setSignal(signal);
+  throwIfAborted();
   const s = await ensureSession();
-  const shot = await s.cdp.send("Page.captureScreenshot", { format: "png" });
+  const shot = await cdp("Page.captureScreenshot", { format: "png" });
   return { ok: true, pngBase64: shot.data, browser: s.browserName };
 }
 
-async function close() {
+// Detach from the session. kill=true also terminates the browser we launched
+// (our isolated automation profile) — used when a turn is stopped/aborted so
+// no window is left behind or relaunched behind the user's back.
+function close(kill = false) {
   if (!session) return { ok: true, note: "no browser session" };
-  try { session.cdp.close(); } catch {}
-  session = null;
-  return { ok: true };
+  cleanup(kill);
+  return { ok: true, killed: !!kill };
 }
 
 module.exports = { open, snapshot, read, click, type: typeText, scroll, screenshot, close, findBrowser, validHttpUrl };

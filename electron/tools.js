@@ -633,6 +633,9 @@ async function listDir(p) {
 async function executeTool(call, ctx) {
   const { name, args } = call;
   const signal = ctx.signal;
+  // a stop/abort must win over everything already queued — including an
+  // approval the user clicked before hitting stop
+  if (signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
   // auto-review rules (the original's auto-review selector): user-defined
   // patterns that allow / deny / force-ask for a tool before the approval mode
   const rule = ctx.resolveAutoReview?.(name, args);
@@ -775,31 +778,33 @@ async function executeTool(call, ctx) {
         return await ctx.takeScreenScreenshot();
       }
       case "browser_open":
-        return await browserCtl.open(args.url);
+        return await browserCtl.open(args.url, signal);
       case "browser_snapshot":
-        return await browserCtl.snapshot();
+        return await browserCtl.snapshot(signal);
       case "browser_read":
-        return await browserCtl.read();
+        return await browserCtl.read(signal);
       case "browser_scroll":
-        return await browserCtl.scroll(args);
+        return await browserCtl.scroll(args, signal);
       case "browser_close":
         return await browserCtl.close();
       case "browser_click": {
+        if (ctx.signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
         if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
           const ok = await ctx.approve({ tool: name, title: "Browser control", detail: `Click element #${args.index}`, kind: "computer-use" });
           if (!ok) return { ok: false, error: "User declined this browser action." };
         }
-        return await browserCtl.click(args);
+        return await browserCtl.click(args, signal);
       }
       case "browser_type": {
+        if (ctx.signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
         if (ctx.approvalMode === "ask" || ctx.approvalMode === "askRisky") {
           const ok = await ctx.approve({ tool: name, title: "Browser control", detail: `Type into element #${args.index}: ${String(args.text || "").slice(0, 120)}`, kind: "computer-use" });
           if (!ok) return { ok: false, error: "User declined this browser action." };
         }
-        return await browserCtl.type(args);
+        return await browserCtl.type(args, signal);
       }
       case "browser_screenshot": {
-        const shot = await browserCtl.screenshot();
+        const shot = await browserCtl.screenshot(signal);
         if (typeof ctx.saveBrowserShot === "function") {
           const saved = await ctx.saveBrowserShot(Buffer.from(shot.pngBase64, "base64"));
           if (saved?.url) return { ok: true, url: saved.url, note: "Embed with markdown image syntax." };
