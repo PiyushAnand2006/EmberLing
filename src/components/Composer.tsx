@@ -223,23 +223,19 @@ export function Composer({
       )}
       {/* pill row: + hub | editor | model + approval chips | mic/send */}
       <div className="composer">
-        {/* "+" hub: attach + rich-text formatting (the original's pill composer) */}
+        {/* "+" hub — the original's Composer actions menu: attach / voice memo / teach */}
         <PopoverMenu
-          header="Add to message"
+          align="start"
+          header="Composer actions"
           trigger={(open) => (
-            <button className="composer-plus" onClick={open} title="Add files or formatting">
+            <button className="composer-plus" onClick={open} title="Composer actions">
               <IconPlus size={16} />
             </button>
           )}
           items={[
             { label: "Attach files", icon: <IconPaperclip size={13} />, onClick: pickFiles },
-            { label: "Bold", icon: <b style={{ fontSize: 12 }}>B</b>, onClick: () => rich.current?.chain().focus().toggleBold().run() },
-            { label: "Italic", icon: <i style={{ fontSize: 12 }}>i</i>, onClick: () => rich.current?.chain().focus().toggleItalic().run() },
-            { label: "Inline code", icon: <code style={{ fontSize: 11 }}>{"</>"}</code>, onClick: () => rich.current?.chain().focus().toggleCode().run() },
-            { label: "Link", icon: <span style={{ fontSize: 13 }}>🔗</span>, onClick: () => rich.current?.chain().focus().setLink({ href: "https://" }).run() },
-            { label: "Bulleted list", icon: <span style={{ fontSize: 13 }}>•—</span>, onClick: () => rich.current?.chain().focus().toggleBulletList().run() },
-            { label: "Numbered list", icon: <span style={{ fontSize: 12, fontFamily: "var(--cursor-font-family-mono)" }}>1.</span>, onClick: () => rich.current?.chain().focus().toggleOrderedList().run() },
-            { label: "Code block", icon: <span style={{ fontSize: 11, fontFamily: "var(--cursor-font-family-mono)" }}>{"{ }"}</span>, onClick: () => rich.current?.chain().focus().toggleCodeBlock().run() },
+            { label: recording ? "Stop recording" : "Record a voice memo", icon: <IconMic size={13} />, onClick: () => (recording ? stopRecording() : startRecording()) },
+            { label: "Teach a task", icon: <span style={{ fontSize: 13 }}>🎓</span>, onClick: () => window.dispatchEvent(new CustomEvent("emberling:teach")) },
           ]}
         />
         <RichEditor
