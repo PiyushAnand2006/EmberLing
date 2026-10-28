@@ -3,7 +3,7 @@ import { useApp } from "../state";
 import type { Attachment } from "../types";
 import { PopoverMenu } from "./Menu";
 import { RichEditor } from "./RichEditor";
-import { IconPaperclip, IconMic, IconSend, IconStop, IconX, IconCheck, IconShield, IconSparkles, IconChevronDown } from "./Icons";
+import { IconPaperclip, IconMic, IconSend, IconStop, IconX, IconCheck, IconShield, IconSparkles, IconChevronDown, IconPlus } from "./Icons";
 
 const APPROVAL_LABELS: Record<string, string> = {
   ask: "Ask before acting",
@@ -203,25 +203,45 @@ export function Composer({
           ))}
         </div>
       )}
-      <div className="composer">
-        {editMessageId && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 0", fontSize: 12, color: "var(--cursor-accent)" }}>
-            ✎ Editing message
-            <button className="btn subtle" style={{ padding: "2px 8px", fontSize: 11 }} onClick={() => { setEditMessageId(undefined); setText(""); }}>
-              cancel
+      {editMessageId && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px 6px", fontSize: 12, color: "var(--cursor-accent)" }}>
+          ✎ Editing message
+          <button className="btn subtle" style={{ padding: "2px 8px", fontSize: 11 }} onClick={() => { setEditMessageId(undefined); setText(""); }}>
+            cancel
+          </button>
+        </div>
+      )}
+      {slashOpen && filteredCommands.length > 0 && (
+        <div className="menu" style={{ position: "absolute", bottom: "calc(100% - 4px)", left: 24, right: 24, minWidth: 260, zIndex: 30 }}>
+          {filteredCommands.map((c) => (
+            <button key={c.cmd} className="menu-item" onClick={() => applySlash(c.insert)}>
+              <span style={{ color: "var(--cursor-brand)", fontFamily: "var(--cursor-font-family-mono)", fontSize: 12 }}>{c.cmd}</span>
+              <span style={{ flex: 1, color: "var(--cursor-text-tertiary)" }}>{c.label}</span>
             </button>
-          </div>
-        )}
-        {slashOpen && filteredCommands.length > 0 && (
-          <div className="menu" style={{ position: "static", marginBottom: 4, minWidth: 260 }}>
-            {filteredCommands.map((c) => (
-              <button key={c.cmd} className="menu-item" onClick={() => applySlash(c.insert)}>
-                <span style={{ color: "var(--cursor-brand)", fontFamily: "var(--cursor-font-family-mono)", fontSize: 12 }}>{c.cmd}</span>
-                <span style={{ flex: 1, color: "var(--cursor-text-tertiary)" }}>{c.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
+      )}
+      {/* pill row: + hub | editor | model + approval chips | mic/send */}
+      <div className="composer">
+        {/* "+" hub: attach + rich-text formatting (the original's pill composer) */}
+        <PopoverMenu
+          header="Add to message"
+          trigger={(open) => (
+            <button className="composer-plus" onClick={open} title="Add files or formatting">
+              <IconPlus size={16} />
+            </button>
+          )}
+          items={[
+            { label: "Attach files", icon: <IconPaperclip size={13} />, onClick: pickFiles },
+            { label: "Bold", icon: <b style={{ fontSize: 12 }}>B</b>, onClick: () => rich.current?.chain().focus().toggleBold().run() },
+            { label: "Italic", icon: <i style={{ fontSize: 12 }}>i</i>, onClick: () => rich.current?.chain().focus().toggleItalic().run() },
+            { label: "Inline code", icon: <code style={{ fontSize: 11 }}>{"</>"}</code>, onClick: () => rich.current?.chain().focus().toggleCode().run() },
+            { label: "Link", icon: <span style={{ fontSize: 13 }}>🔗</span>, onClick: () => rich.current?.chain().focus().setLink({ href: "https://" }).run() },
+            { label: "Bulleted list", icon: <span style={{ fontSize: 13 }}>•—</span>, onClick: () => rich.current?.chain().focus().toggleBulletList().run() },
+            { label: "Numbered list", icon: <span style={{ fontSize: 12, fontFamily: "var(--cursor-font-family-mono)" }}>1.</span>, onClick: () => rich.current?.chain().focus().toggleOrderedList().run() },
+            { label: "Code block", icon: <span style={{ fontSize: 11, fontFamily: "var(--cursor-font-family-mono)" }}>{"{ }"}</span>, onClick: () => rich.current?.chain().focus().toggleCodeBlock().run() },
+          ]}
+        />
         <RichEditor
           value={text}
           onReady={(editor) => (editorRef.current = editor)}
@@ -237,35 +257,8 @@ export function Composer({
           onEnter={send}
           autoFocus
         />
-        <div className="composer-toolbar">
-          <button className="icon-btn" title="Attach files" onClick={pickFiles}>
-            <IconPaperclip size={15} />
-          </button>
-          <span style={{ width: 1, height: 16, background: "var(--cursor-stroke-quaternary)" }} />
-          <button className="icon-btn" title="Bold" onClick={() => rich.current?.chain().focus().toggleBold().run()}>
-            <b style={{ fontSize: 12 }}>B</b>
-          </button>
-          <button className="icon-btn" title="Italic" onClick={() => rich.current?.chain().focus().toggleItalic().run()}>
-            <i style={{ fontSize: 12 }}>i</i>
-          </button>
-          <button className="icon-btn" title="Inline code" onClick={() => rich.current?.chain().focus().toggleCode().run()}>
-            <code style={{ fontSize: 11 }}>{"</>"}</code>
-          </button>
-          <button className="icon-btn" title="Link" onClick={() => rich.current?.chain().focus().setLink({ href: "https://" }).run()}>
-            <span style={{ fontSize: 13 }}>🔗</span>
-          </button>
-          <button className="icon-btn" title="Bulleted list" onClick={() => rich.current?.chain().focus().toggleBulletList().run()}>
-            <span style={{ fontSize: 13 }}>•—</span>
-          </button>
-          <button className="icon-btn" title="Numbered list" onClick={() => rich.current?.chain().focus().toggleOrderedList().run()}>
-            <span style={{ fontSize: 12, fontFamily: "var(--cursor-font-family-mono)" }}>1.</span>
-          </button>
-          <button className="icon-btn" title="Code block" onClick={() => rich.current?.chain().focus().toggleCodeBlock().run()}>
-            <span style={{ fontSize: 11, fontFamily: "var(--cursor-font-family-mono)" }}>{"{ }"}</span>
-          </button>
-
-          <PopoverMenu
-            header="Model"
+        <PopoverMenu
+          header="Model"
             trigger={(open) => (
               <button className="chip-btn" onClick={open} title="Model">
                 <IconSparkles size={12} />
@@ -309,41 +302,45 @@ export function Composer({
                     )
                 : [{ label: "Add a provider in Settings → General", onClick: () => {} }]
             }
-          />
+        />
 
-          <PopoverMenu
-            header="Approval mode"
-            trigger={(open) => (
-              <button className="chip-btn" onClick={open} title="Approval mode">
-                <IconShield size={12} />
-                <span className="chip-label">{APPROVAL_LABELS[settings.approvalMode]}</span>
-                <IconChevronDown size={11} />
-              </button>
-            )}
-            items={(["ask", "askRisky", "auto"] as const).map((mode) => ({
-              label: APPROVAL_LABELS[mode],
-              icon: settings.approvalMode === mode ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
-              onClick: () => setSettings((s) => ({ ...s, approvalMode: mode })),
-            }))}
-          />
-
-          <div className="spacer" />
-
-          <button className={`icon-btn${recording ? " active" : ""}`} title={recording ? "Stop recording" : "Record voice message"} onClick={recording ? stopRecording : startRecording}>
-            <IconMic size={15} />
-          </button>
-          {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)" }}>{(recordMs / 1000).toFixed(1)}s</span>}
-
-          {busy ? (
-            <button className="send-btn stop" title="Stop" onClick={onStop}>
-              <IconStop size={13} />
-            </button>
-          ) : (
-            <button className="send-btn" title="Send" onClick={send} disabled={!text.trim() && !attachments.length}>
-              <IconSend size={15} />
+        <PopoverMenu
+          header="Approval mode"
+          trigger={(open) => (
+            <button className="chip-btn" onClick={open} title="Approval mode">
+              <IconShield size={12} />
+              <span className="chip-label">{APPROVAL_LABELS[settings.approvalMode]}</span>
+              <IconChevronDown size={11} />
             </button>
           )}
-        </div>
+          items={(["ask", "askRisky", "auto"] as const).map((mode) => ({
+            label: APPROVAL_LABELS[mode],
+            icon: settings.approvalMode === mode ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
+            onClick: () => setSettings((s) => ({ ...s, approvalMode: mode })),
+          }))}
+        />
+
+        <div className="spacer" />
+
+        {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)", marginBottom: 4 }}>{(recordMs / 1000).toFixed(1)}s</span>}
+
+        {busy ? (
+          <button className="send-btn stop" title="Stop" onClick={onStop}>
+            <IconStop size={13} />
+          </button>
+        ) : text.trim() || attachments.length ? (
+          <button className="send-btn" title="Send" onClick={send}>
+            <IconSend size={15} />
+          </button>
+        ) : (
+          <button
+            className={`composer-round${recording ? " recording" : ""}`}
+            title={recording ? "Stop recording" : "Record voice message"}
+            onClick={recording ? stopRecording : startRecording}
+          >
+            <IconMic size={16} />
+          </button>
+        )}
       </div>
     </div>
   );

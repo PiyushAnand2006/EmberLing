@@ -513,19 +513,28 @@ input, textarea, select { font: inherit; color: inherit; }
 .suggestion-chip:hover { background: var(--cursor-bg-tertiary); color: var(--cursor-text-primary); }
 
 /* ---------- Composer ---------- */
-.composer-wrap { padding: 8px 24px 16px; }
+.composer-wrap { padding: 8px 24px 16px; position: relative; }
+/* Pill composer (the original's chat box): one row — "+" hub, editor, model
+   and approval chips, circular mic (send swaps in when there is content). */
 .composer {
-  border-radius: var(--cursor-radius-xl);
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-radius: 24px;
   background: var(--cursor-bg-input-field);
   border: 1px solid var(--cursor-stroke-tertiary);
   transition: border-color 0.12s ease;
+  padding: 8px 12px;
 }
 .composer:focus-within { border-color: rgba(255,255,255,0.2); }
+.composer > .tiptap { flex: 1; min-width: 0; }
+.composer-plus { margin-bottom: 5px; }
+.chip-btn { margin-bottom: 5px; }
 .composer-input {
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   max-height: 200px;
-  padding: 12px 14px 4px;
+  padding: 12px 8px 2px;
   background: none;
   border: 0;
   outline: none;
@@ -537,37 +546,59 @@ input, textarea, select { font: inherit; color: inherit; }
 .composer-input::placeholder { color: var(--cursor-text-quaternary); }
 
 /* TipTap rich composer (Block B19) */
-.tiptap .ProseMirror {
+.ProseMirror.composer-input {
   outline: none;
-  min-height: 44px;
+  min-height: 36px;
   max-height: 200px;
   overflow-y: auto;
-  padding: 12px 14px 4px;
+  padding: 8px 4px 6px;
 }
-.tiptap .ProseMirror p.is-editor-empty:first-child::before {
+.ProseMirror.composer-input p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   height: 0;
   pointer-events: none;
   color: var(--cursor-text-quaternary);
 }
-.tiptap .ProseMirror p { margin: 6px 0; }
-.tiptap .ProseMirror ul, .tiptap .ProseMirror ol { margin: 4px 0; padding-left: 22px; }
-.tiptap .ProseMirror pre {
+.ProseMirror.composer-input p { margin: 6px 0; }
+.ProseMirror.composer-input ul, .ProseMirror.composer-input ol { margin: 4px 0; padding-left: 22px; }
+.ProseMirror.composer-input pre {
   background: rgba(0,0,0,0.42);
   border-radius: var(--cursor-radius-lg);
   padding: 8px 10px;
   font-family: var(--cursor-font-family-mono);
   font-size: 12px;
 }
-.tiptap .ProseMirror code { font-family: var(--cursor-font-family-mono); background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; }
+.ProseMirror.composer-input code { font-family: var(--cursor-font-family-mono); background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; }
 .composer-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px 8px;
+  gap: 6px;
+  padding: 2px 6px 4px;
 }
 .composer-toolbar .spacer { flex: 1; }
+/* circular "+" hub on the pill's left edge */
+.composer-plus {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--cursor-text-secondary);
+  background: transparent;
+  border: 1px solid var(--cursor-stroke-quaternary);
+  flex: none;
+}
+.composer-plus:hover { background: var(--cursor-bg-tertiary); color: var(--cursor-text-primary); }
+/* circular mic button on the right (send swaps in when there is content) */
+.composer-round {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--cursor-text-primary);
+  background: var(--cursor-bg-tertiary);
+  flex: none;
+}
+.composer-round:hover { background: var(--cursor-bg-quaternary); }
+.composer-round.recording { background: var(--cursor-danger); color: #fff; animation: pulse 1.2s infinite; }
 .chip-btn {
   display: inline-flex;
   align-items: center;
@@ -584,7 +615,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .chip-btn:hover { background: var(--cursor-bg-tertiary); color: var(--cursor-text-primary); }
 .chip-btn .chip-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .send-btn {
-  width: 30px; height: 30px;
+  width: 34px; height: 34px;
   border-radius: 50%;
   background: var(--cursor-brand);
   color: #fff;
