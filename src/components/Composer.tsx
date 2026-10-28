@@ -253,12 +253,12 @@ export function Composer({
           onEnter={send}
           autoFocus
         />
-        <PopoverMenu
-          header="Model"
+          <PopoverMenu
+            header="Model"
             trigger={(open) => (
-              <button className="chip-btn" onClick={open} title="Model">
+              <button className="chip-btn" onClick={open} title={`Model · provider: ${activeProvider?.name || "none"}`}>
                 <IconSparkles size={12} />
-                <span className="chip-label">{activeModel ? activeModel.split("/").pop()!.slice(0, 22) : "Set up model"}</span>
+                <span className="chip-label">{activeProvider ? `${activeProvider.name.split(" ")[0]} · ${activeModel.split("/").pop()!.slice(0, 22)}` : "Set up model"}</span>
                 <IconChevronDown size={11} />
               </button>
             )}

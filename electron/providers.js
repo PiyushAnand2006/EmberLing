@@ -219,6 +219,25 @@ async function streamChat({ config, messages, tools, signal, onDelta, onDone }) 
     await sleepWithSignal((wait + 2) * 1000, signal);
     res = await doFetch();
   }
+  // "previous request is still running" (RATE_LIMITED): the prior connection
+  // hasn't fully unwound yet (edit-and-resend, concurrent chats) — brief
+  // backoff and retry before failing over
+  if (res.status === 429) {
+    const text = await res.text().catch(() => "");
+    if (/RATE_LIMITED|still running|per IP/i.test(text)) {
+      for (const waitMs of [4000, 9000]) {
+        await sleepWithSignal(waitMs, signal);
+        res = await doFetch();
+        if (res.status !== 429) break;
+      }
+      if (res.status === 429) {
+        const again = await res.text().catch(() => "");
+        throw new Error(`${config.providerId} HTTP 429: ${again.slice(0, 300)}`);
+      }
+    } else {
+      throw new Error(`${config.providerId} HTTP 429: ${text.slice(0, 400)}`);
+    }
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${config.providerId} HTTP ${res.status}: ${text.slice(0, 400)}`);

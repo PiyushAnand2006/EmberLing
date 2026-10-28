@@ -616,12 +616,23 @@ function migrateSettings(saved) {
 }
 
 ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mode }) => {
+  // An edit-and-resend (or retry) while the previous turn is still streaming
+  // must close the old provider connection first — keyless tiers answer one
+  // request per IP, so overlapping turns 429 with "previous request is still
+  // running". Abort the prior turn and let it unwind before starting.
+  const prior = activeTurns.get(conversationId);
+  if (prior?.controller) {
+    prior.controller.abort();
+    await prior.done.catch(() => {});
+  }
+  let doneResolve = () => {};
+  const done = new Promise((r) => (doneResolve = r));
   const settings = migrateSettings(store.load("settings", defaultSettings()));
   const bots = store.load("bots", []);
   const memories = store.load("memories", []);
   const bot = bots.find((b) => b.id === botId) || null;
   const controller = new AbortController();
-  activeTurns.set(conversationId, controller);
+  activeTurns.set(conversationId, { controller, done });
   const send = (type, payload) => {
     if (!mainWindow?.isDestroyed()) {
       mainWindow.webContents.send("agent:event", { conversationId, type, payload });
@@ -805,6 +816,7 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
     return { ok: false, error: String(err?.message || err) };
   } finally {
     activeTurns.delete(conversationId);
+    doneResolve();
   }
 });
 
@@ -858,7 +870,7 @@ function notifyTurnDone(settings, mode, result) {
 }
 
 ipcMain.on("agent:stop", (_e, conversationId) => {
-  activeTurns.get(conversationId)?.abort();
+  activeTurns.get(conversationId)?.controller?.abort();
   activeTurns.delete(conversationId);
 });
 
