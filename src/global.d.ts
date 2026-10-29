@@ -37,6 +37,10 @@ declare global {
     sync(enabled: boolean): void;
     moveBy(dx: number, dy: number): void;
     savePosition(): void;
+    /** hover intent on the desktop mark — shows/hides the preview bubble */
+    hover(on: boolean): void;
+    /** preview bubble content pushed from main when the bubble shows */
+    onPreviewData(cb: (d: { title: string; snippet: string } | null) => void): void;
   };
   mcp: {
     list(): Promise<{ configs: any[]; connected: { name: string; tools: number }[] }>;
@@ -116,6 +120,7 @@ declare global {
     webhookEnable(id: string, enable: boolean): Promise<{ ok: boolean; enabled?: boolean; url?: string | null; note?: string; error?: string }>;
     webhookPort(): Promise<number | null>;
     runNow(id: string): Promise<{ ok: boolean; error?: string }>;
+    slackChannels(): Promise<{ ok: boolean; channels?: { id: string; name: string }[]; error?: string }>;
   };
   botScreen: {
     get(botId: string): Promise<{

@@ -124,6 +124,10 @@ export interface Automation {
   /** webhook trigger (POST /webhook/<id>?key=<token> on loopback) */
   webhook?: boolean;
   webhookKey?: string;
+  /** event trigger — polled by the scheduler; takes precedence over the schedule */
+  trigger?: { type: "slack_mention"; channel?: string } | { type: "repo_event"; repo?: string; event?: "issues" | "pulls" };
+  /** poll bookkeeping for event triggers (last seen ts / cursor) */
+  triggerState?: Record<string, any>;
   /** completion/failure toast (default on; the conversation always records the run) */
   notify?: boolean;
 }

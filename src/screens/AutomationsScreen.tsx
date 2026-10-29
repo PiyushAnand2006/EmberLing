@@ -7,9 +7,25 @@ import { DotlingFace } from "../components/Brand";
 function AutomationEditor({ automation, onClose }: { automation: Automation; onClose: () => void }) {
   const { setAutomations, toast, bots } = useApp();
   const [draft, setDraft] = useState<Automation>(automation);
+  const [slackChannels, setSlackChannels] = useState<{ id: string; name: string }[]>([]);
+
+  const triggerType = draft.trigger?.type || "schedule";
+  const slackTrigger = draft.trigger?.type === "slack_mention" ? draft.trigger : null;
+  const repoTrigger = draft.trigger?.type === "repo_event" ? draft.trigger : null;
+  const loadSlackChannels = async () => {
+    const res = await window.emberling.automations.slackChannels();
+    if (res.ok) setSlackChannels((res as any).channels || []);
+    else toast(res.error || "Could not list Slack channels");
+  };
+  React.useEffect(() => {
+    if (draft.trigger?.type === "slack_mention" && slackChannels.length === 0) loadSlackChannels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.trigger?.type]);
 
   const save = () => {
     if (!draft.name.trim() || !draft.prompt.trim()) return;
+    if (draft.trigger?.type === "repo_event" && !/^[^/\s]+\/[^/\s]+$/.test((draft.trigger.repo || "").trim())) return;
+    if (draft.trigger?.type === "slack_mention" && !draft.trigger.channel) return;
     setAutomations((list) => (list.some((a) => a.id === draft.id) ? list.map((a) => (a.id === draft.id ? draft : a)) : [...list, draft]));
     toast(`Automation "${draft.name}" saved`);
     onClose();
@@ -33,32 +49,86 @@ function AutomationEditor({ automation, onClose }: { automation: Automation; onC
             value={draft.prompt}
             onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
           />
-          <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
             <select
               className="text-input"
-              value={draft.schedule.type}
-              onChange={(e) => setDraft({ ...draft, schedule: { ...draft.schedule, type: e.target.value as "minutes" | "daily" } })}
+              value={triggerType}
+              onChange={(e) => {
+                const t = e.target.value;
+                setDraft({
+                  ...draft,
+                  trigger: t === "slack_mention" ? { type: "slack_mention", channel: "" } : t === "repo_event" ? { type: "repo_event", repo: "", event: "issues" } : undefined,
+                  lastRun: null,
+                });
+              }}
             >
-              <option value="daily">Every day at</option>
-              <option value="minutes">Every N minutes</option>
+              <option value="schedule">On a schedule</option>
+              <option value="slack_mention">When mentioned in Slack</option>
+              <option value="repo_event">On a GitHub repo event</option>
             </select>
-            {draft.schedule.type === "daily" ? (
-              <input
+            {triggerType === "slack_mention" && (
+              <select
                 className="text-input"
-                style={{ width: 100 }}
-                type="time"
-                value={draft.schedule.time || "09:00"}
-                onChange={(e) => setDraft({ ...draft, schedule: { ...draft.schedule, time: e.target.value } })}
-              />
-            ) : (
-              <input
-                className="text-input"
-                style={{ width: 120 }}
-                type="number"
-                min={1}
-                value={draft.schedule.minutes || 60}
-                onChange={(e) => setDraft({ ...draft, schedule: { ...draft.schedule, minutes: Number(e.target.value) || 60 } })}
-              />
+                value={slackTrigger?.channel || ""}
+                onChange={(e) => setDraft({ ...draft, trigger: { type: "slack_mention", channel: e.target.value } })}
+              >
+                <option value="">{slackChannels.length ? "Pick a channel…" : "Loading channels…"}</option>
+                {slackChannels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    #{c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {triggerType === "repo_event" && (
+              <>
+                <input
+                  className="text-input"
+                  style={{ width: 200 }}
+                  placeholder="owner/repo"
+                  value={repoTrigger?.repo || ""}
+                  onChange={(e) => setDraft({ ...draft, trigger: { type: "repo_event", repo: e.target.value, event: repoTrigger?.event || "issues" } })}
+                />
+                <select
+                  className="text-input"
+                  style={{ width: 130 }}
+                  value={repoTrigger?.event || "issues"}
+                  onChange={(e) => setDraft({ ...draft, trigger: { type: "repo_event", repo: repoTrigger?.repo || "", event: e.target.value as "issues" | "pulls" } })}
+                >
+                  <option value="issues">New issue</option>
+                  <option value="pulls">New pull request</option>
+                </select>
+              </>
+            )}
+            {triggerType === "schedule" && (
+              <>
+                <select
+                  className="text-input"
+                  value={draft.schedule.type}
+                  onChange={(e) => setDraft({ ...draft, schedule: { ...draft.schedule, type: e.target.value as "minutes" | "daily" } })}
+                >
+                  <option value="daily">Every day at</option>
+                  <option value="minutes">Every N minutes</option>
+                </select>
+                {draft.schedule.type === "daily" ? (
+                  <input
+                    className="text-input"
+                    style={{ width: 100 }}
+                    type="time"
+                    value={draft.schedule.time || "09:00"}
+                    onChange={(e) => setDraft({ ...draft, schedule: { ...draft.schedule, time: e.target.value } })}
+                  />
+                ) : (
+                  <input
+                    className="text-input"
+                    style={{ width: 120 }}
+                    type="number"
+                    min={1}
+                    value={draft.schedule.minutes || 60}
+                    onChange={(e) => setDraft({ ...draft, schedule: { ...draft.schedule, minutes: Number(e.target.value) || 60 } })}
+                  />
+                )}
+              </>
             )}
             <select className="text-input" value={draft.botId || ""} onChange={(e) => setDraft({ ...draft, botId: e.target.value })}>
               <option value="">Run as Emberling</option>
@@ -69,6 +139,18 @@ function AutomationEditor({ automation, onClose }: { automation: Automation; onC
               ))}
             </select>
           </div>
+          {triggerType === "slack_mention" && (
+            <div style={{ fontSize: 12, color: "var(--cursor-text-tertiary)", marginTop: 8 }}>
+              Fires when someone mentions the bot in the picked channel — requires the Slack integration (Integrations → Slack). First connect only baselines
+              the channel; use "Check now" to verify the wiring.
+            </div>
+          )}
+          {triggerType === "repo_event" && (
+            <div style={{ fontSize: 12, color: "var(--cursor-text-tertiary)", marginTop: 8 }}>
+              Fires when a new {repoTrigger?.event === "pulls" ? "pull request" : "issue"} opens. Public repos work without a token; connected repos use the
+              GitHub integration token. Use "Check now" to verify the wiring.
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
             <div>
               <div style={{ fontSize: 13 }}>Notify me when it finishes</div>
@@ -99,6 +181,15 @@ function AutomationEditor({ automation, onClose }: { automation: Automation; onC
 export function AutomationsScreen() {
   const { automations, setAutomations, toast } = useApp();
   const [editing, setEditing] = useState<Automation | null>(null);
+  const [channelNames, setChannelNames] = useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    if (!automations.some((a) => a.trigger?.type === "slack_mention")) return;
+    window.emberling.automations.slackChannels().then((res) => {
+      if (res.ok) setChannelNames(Object.fromEntries((((res as any).channels || []) as any[]).map((c) => [c.id, c.name])));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [automations.some((a) => a.trigger?.type === "slack_mention")]);
 
   return (
     <div className="screen">
@@ -142,8 +233,14 @@ export function AutomationsScreen() {
               <div className="li-body">
                 <div className="li-title">{a.name}</div>
                 <div className="li-sub">
-                  {a.schedule.type === "daily" ? `Daily at ${a.schedule.time}` : `Every ${a.schedule.minutes} min`} ·{" "}
-                  {a.lastRun ? `last ran ${new Date(a.lastRun).toLocaleString()}` : "never ran"} · {a.prompt.slice(0, 80)}
+                  {a.trigger?.type === "slack_mention"
+                    ? `On Slack mention${(a.trigger as any).channel ? ` · #${channelNames[(a.trigger as any).channel] || (a.trigger as any).channel}` : ""}`
+                    : a.trigger?.type === "repo_event"
+                      ? `On new GitHub ${(a.trigger as any).event === "pulls" ? "PR" : "issue"} · ${(a.trigger as any).repo || "?"}`
+                      : a.schedule.type === "daily"
+                        ? `Daily at ${a.schedule.time}`
+                        : `Every ${a.schedule.minutes} min`}{" "}
+                  · {a.lastRun ? `last ran ${new Date(a.lastRun).toLocaleString()}` : "never ran"} · {a.prompt.slice(0, 80)}
                 </div>
               </div>
               <button
@@ -167,14 +264,14 @@ export function AutomationsScreen() {
               </button>
               <button
                 className="icon-btn"
-                title="Run now (uses this Dotling's VM when the Linux sandbox is on)"
+                title={a.trigger?.type ? "Check now — poll the trigger and fire on the newest event" : "Run now (uses this Dotling's VM when the Linux sandbox is on)"}
                 onClick={async () => {
                   const res = await window.emberling.automations.runNow(a.id);
                   if (res.ok) toast(`"${a.name}" ran — check its conversation`);
                   else toast(res.error || "Run failed");
                 }}
               >
-                Run now
+                {a.trigger?.type ? "Check now" : "Run now"}
               </button>
               <button className="icon-btn" title="Edit" onClick={() => setEditing(a)}>
                 Edit

@@ -1229,6 +1229,11 @@ ipcMain.handle("automations:runNow", async (_e, id) => {
   const automations = store.load("automations", []);
   const a = automations.find((x) => x.id === id);
   if (!a) return { ok: false, error: "automation not found" };
+  if (a.trigger?.type) {
+    // event triggers: one poll now, force-firing on the newest event
+    const res = await checkEventTrigger(a, true);
+    return res.fired ? { ok: true } : { ok: false, error: res.note || "no new events" };
+  }
   if (activeTurns.has("automation:" + id)) return { ok: false, error: "already running" };
   activeTurns.set("automation:" + id, new AbortController());
   try {
@@ -1238,6 +1243,18 @@ ipcMain.handle("automations:runNow", async (_e, id) => {
     return { ok: false, error: String(err?.message || err).slice(0, 200) };
   } finally {
     activeTurns.delete("automation:" + id);
+  }
+});
+
+ipcMain.handle("automations:slackChannels", async () => {
+  const token = getInteg("slack", "botToken");
+  if (!token) return { ok: false, error: "Connect Slack in Integrations first" };
+  try {
+    const slack = require("./integrations/slack");
+    const channels = await slack.listChannels(token);
+    return { ok: true, channels: (channels || []).map((c) => ({ id: c.id, name: c.name })) };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err).slice(0, 160) };
   }
 });
 
@@ -1272,10 +1289,96 @@ async function runDueAutomations() {
   const now = Date.now();
   for (const a of automations) {
     if (!a.enabled) continue;
+    if (a.trigger?.type) {
+      await checkEventTrigger(a);
+      continue;
+    }
     const due = automationDue(a, now);
     if (!due) continue;
     store.update("automations", (list) => list.map((x) => (x.id === a.id ? { ...x, lastRun: now } : x)));
     await runAutomationTurn(a);
+  }
+}
+
+/* ---------------- Event triggers (the original's Slack/repo triggers) ----------------
+ * Polled on the same 30s tick as schedules. First poll only baselines the cursor
+ * (so connecting never replays history); "check now" force-fires on the newest
+ * event so the wiring can be verified without waiting for a real event. */
+
+async function slackGet(token, method, params) {
+  const qs = new URLSearchParams(params || {});
+  const res = await fetch(`https://slack.com/api/${method}?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+  return res.json();
+}
+
+async function checkEventTrigger(a, force = false) {
+  if (activeTurns.has("automation:" + a.id)) return { fired: false, note: "already running" };
+  const t = a.trigger || {};
+  try {
+    if (t.type === "slack_mention") {
+      const token = getInteg("slack", "botToken");
+      if (!token) return { fired: false, note: "connect Slack in Integrations first" };
+      if (!t.channel) return { fired: false, note: "pick a channel in the automation editor" };
+      const state = { ...(a.triggerState || {}) };
+      if (!state.botUserId) {
+        const me = await slackGet(token, "auth.test", {});
+        if (!me?.ok || !me.user_id) return { fired: false, note: me?.error || "Slack auth failed" };
+        state.botUserId = me.user_id;
+      }
+      const params = { channel: t.channel, limit: 20 };
+      if (state.lastTs) params.oldest = state.lastTs;
+      const hist = await slackGet(token, "conversations.history", params);
+      if (!hist?.ok) return { fired: false, note: hist?.error || "Slack history failed" };
+      const fresh = (hist.messages || [])
+        .filter((m) => m.type === "message" && !m.subtype && m.user !== state.botUserId)
+        .sort((x, y) => Number(y.ts) - Number(x.ts));
+      if (state.lastTs) state.lastTs = String(Math.max(Number(state.lastTs), ...fresh.map((m) => Number(m.ts)), 0)) || state.lastTs;
+      else state.lastTs = fresh[0]?.ts || String(Date.now() / 1000);
+      saveTriggerState(a, state);
+      const mentions = fresh.filter((m) => String(m.text || "").includes(`<@${state.botUserId}>`));
+      const hit = force ? mentions[0] || fresh[0] : mentions[0];
+      if (!hit) return { fired: false, note: force ? "no messages in that channel yet" : "no new mentions" };
+      return await fireTriggeredAutomation(a, `Slack trigger — you were mentioned in <#${t.channel}>:\n> ${String(hit.text || "").slice(0, 500)}`);
+    }
+    if (t.type === "repo_event") {
+      const repo = (t.repo || "").replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").trim();
+      if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) return { fired: false, note: "set the repo as owner/name" };
+      const kind = t.event === "pulls" ? "pulls" : "issues";
+      const token = getInteg("github", "apiToken");
+      const headers = { "User-Agent": "Emberling", Accept: "application/vnd.github+json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`https://api.github.com/repos/${repo}/${kind}?sort=created&direction=desc&per_page=5`, { headers });
+      if (!res.ok) return { fired: false, note: `GitHub API ${res.status}` };
+      const items = (await res.json()).filter((i) => (kind === "pulls" ? !!i.pull_request : !i.pull_request));
+      const state = { ...(a.triggerState || {}) };
+      const newest = items[0]?.created_at;
+      if (!newest) return { fired: false, note: force ? `no ${kind} on ${repo} yet` : "nothing to baseline" };
+      const had = !!state.lastCreatedAt;
+      state.lastCreatedAt = newest;
+      saveTriggerState(a, state);
+      const freshItems = items.filter((i) => i.created_at > (had ? a.triggerState?.lastCreatedAt || "" : ""));
+      const hit = force ? items[0] : freshItems[0];
+      if (!hit) return { fired: false, note: force ? `baselined — newest ${kind.slice(0, -1)}: "${items[0].title}"` : "no new events" };
+      return await fireTriggeredAutomation(a, `GitHub trigger — new ${kind === "pulls" ? "pull request" : "issue"} on ${repo}:\n> "${hit.title}" by ${hit.user?.login} — ${hit.html_url}`);
+    }
+    return { fired: false, note: "unknown trigger type" };
+  } catch (err) {
+    return { fired: false, note: String(err?.message || err).slice(0, 160) };
+  }
+}
+
+function saveTriggerState(a, state) {
+  store.update("automations", (list) => list.map((x) => (x.id === a.id ? { ...x, triggerState: state } : x)));
+}
+
+async function fireTriggeredAutomation(a, eventSummary) {
+  activeTurns.set("automation:" + a.id, new AbortController());
+  try {
+    store.update("automations", (list) => list.map((x) => (x.id === a.id ? { ...x, lastRun: Date.now() } : x)));
+    await runAutomationTurn({ ...a, prompt: `${a.prompt}\n\n${eventSummary}` });
+    return { fired: true };
+  } finally {
+    activeTurns.delete("automation:" + a.id);
   }
 }
 
