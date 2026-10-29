@@ -15,7 +15,7 @@ declare global {
       fetchModels(payload: { providerId: string; apiKey: string; baseUrl?: string }): Promise<{ ok: boolean; models?: string[]; error?: string }>;
     };
     agent: {
-      send(payload: { conversationId: string; history: { role: string; content: string }[]; botId?: string; mode?: string }): Promise<{ ok: boolean; error?: string; stopped?: boolean }>;
+      send(payload: { conversationId: string; history: { role: string; content: string }[]; botId?: string; roomBots?: string[]; mode?: string }): Promise<{ ok: boolean; error?: string; stopped?: boolean }>;
       stop(conversationId: string): void;
       resolveApproval(id: string, approved: boolean): void;
       onEvent(handler: (evt: any) => void): () => void;

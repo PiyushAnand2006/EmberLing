@@ -290,6 +290,23 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .msg-row { display: flex; padding: 2px 0; }
 .msg-row.user { justify-content: flex-end; }
+.msg-row { flex-wrap: wrap; }
+.msg-row .bot-label {
+  width: 100%;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--cursor-text-tertiary);
+  margin: 6px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.msg-row .bot-label::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--cursor-green);
+}
 .msg-row.agent { justify-content: flex-start; }
 
 .bubble {

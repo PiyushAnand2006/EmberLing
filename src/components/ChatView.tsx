@@ -217,6 +217,7 @@ export function MessageBubble({ msg, bubbleColor, onReact, onRetry, onEdit }: { 
       {msg.approval && <ApprovalCard msg={msg} approval={msg.approval} onResolve={msg.onApprovalResolved || (() => {})} />}
       {msg.form && <FormCard msg={msg} />}
       <div className={`msg-row ${msg.role}`}>
+        {msg.role === "assistant" && msg.botLabel ? <div className="bot-label">{msg.botLabel}</div> : null}
         <div
           className={`bubble ${msg.role}${msg.pending ? " pending" : ""}${msg.error ? " error" : ""}`}
           style={msg.role === "user" ? ({ "--bubble-user-fill": fill } as React.CSSProperties) : undefined}

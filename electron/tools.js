@@ -502,6 +502,30 @@ const TOOL_DEFS = [
   {
     type: "function",
     function: {
+      name: "bots_list",
+      description: "List the other Bots available on this computer (name, description, specialties). Use to decide who to hand a subtask to.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "bot_message",
+      description:
+        "Send a message to another Bot and get its reply — orchestration. The target Bot runs with its own instructions, knowledge and Linux VM, so hand it a self-contained subtask that matches its specialty (e.g. ask the Researcher bot to gather information). Returns the target Bot's reply.",
+      parameters: {
+        type: "object",
+        properties: {
+          botName: { type: "string", description: "target Bot's name (from bots_list)" },
+          message: { type: "string", description: "self-contained task/message for that Bot" },
+        },
+        required: ["botName", "message"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "routine_list",
       description: "List THIS bot's routines (recurring scheduled tasks). Routines run automatically on their schedule and appear on your virtual screen panel.",
       parameters: { type: "object", properties: {}, required: [] },
@@ -921,6 +945,18 @@ async function executeTool(call, ctx) {
       }
       case "link_preview":
         return await linkPreview(args.url);
+      case "bots_list": {
+        const others = (ctx.allBots || []).filter((b) => b.id !== ctx.botId);
+        return {
+          ok: true,
+          bots: others.map((b) => ({ name: b.name, emoji: b.emoji, description: (b.description || b.instructions || "").slice(0, 160) })),
+          note: others.length ? null : "No other Bots exist yet — the user can create them in Bots.",
+        };
+      }
+      case "bot_message": {
+        if (typeof ctx.sendBotMessage !== "function") return { ok: false, error: "orchestration unavailable" };
+        return await ctx.sendBotMessage(String(args.botName || ""), String(args.message || ""));
+      }
       case "routine_list": {
         const bots = ctx.allAutomations || [];
         const mine = bots.filter((a) => (a.botId || "") === (ctx.botId || ""));
@@ -1032,6 +1068,8 @@ const STATUS_BY_TOOL = {
   store_versions: "Reading your store",
   store_delete: "Updating your store",
   link_preview: "Previewing a link",
+  bots_list: "Listing Bots",
+  bot_message: "Messaging a Bot",
   routine_list: "Listing routines",
   routine_add: "Setting up a routine",
   routine_remove: "Removing a routine",

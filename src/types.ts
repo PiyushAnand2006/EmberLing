@@ -20,6 +20,8 @@ export interface Message {
   ts: number;
   pending?: boolean;
   error?: string;
+  /** room orchestration: which member Bot produced this reply */
+  botLabel?: string;
   reactions?: Reaction[];
   attachments?: Attachment[];
   voice?: { url: string; duration: number; transcript?: string };
@@ -76,6 +78,8 @@ export interface Conversation {
   muted?: boolean;
   pinned?: boolean;
   botId?: string;
+  /** Room orchestration: additional member Bots — every member processes each message. */
+  roomBots?: string[];
   automationId?: string;
   draft?: string;
   queued?: QueuedSend[];

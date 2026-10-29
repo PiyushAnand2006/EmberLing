@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 
 export interface MenuItemSpec {
-  label: string;
+  label?: string;
   icon?: React.ReactNode;
-  onClick: () => void;
+  onClick?: () => void;
   danger?: boolean;
+  /** renders as a non-clickable section label instead of an item */
+  section?: string;
 }
 
 export function PopoverMenu({
@@ -56,19 +58,25 @@ export function PopoverMenu({
       {open && pos && (
         <div className="menu" style={{ top: pos.top, left: pos.left, position: "fixed" }} onClick={(e) => e.stopPropagation()}>
           {header && <div className="menu-label">{header}</div>}
-          {items.map((item, i) => (
-            <button
-              key={i}
-              className={`menu-item${item.danger ? " danger" : ""}`}
-              onClick={() => {
-                setOpen(false);
-                item.onClick();
-              }}
-            >
-              {item.icon}
-              <span style={{ flex: 1 }}>{item.label}</span>
-            </button>
-          ))}
+          {items.map((item, i) =>
+            item.section ? (
+              <div key={i} className="menu-label" style={{ marginTop: i > 0 ? 6 : 0 }}>
+                {item.section}
+              </div>
+            ) : (
+              <button
+                key={i}
+                className={`menu-item${item.danger ? " danger" : ""}`}
+                onClick={() => {
+                  setOpen(false);
+                  item.onClick?.();
+                }}
+              >
+                {item.icon}
+                <span style={{ flex: 1 }}>{item.label}</span>
+              </button>
+            )
+          )}
         </div>
       )}
     </span>

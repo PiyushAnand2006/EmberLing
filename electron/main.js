@@ -11,7 +11,7 @@ const crypto = require("node:crypto");
 const store = require("./store");
 const { PROVIDERS, providerById } = require("./providers");
 const { runAgentTurn } = require("./agent");
-const { scopeId } = require("./agent-store");
+const { scopeId, AgentStore } = require("./agent-store");
 const guard = require("./guard");
 
 // self-protection firewall: the agent may not modify its own application
@@ -22,6 +22,79 @@ const selfGuard = guard.createGuard({
   roots: [path.dirname(process.execPath), process.resourcesPath || "", app.getAppPath()],
   userDataDir: app.getPath("userData"),
 });
+
+/* ---------------- Bot-to-bot orchestration ---------------- */
+// find (or create) the standing conversation for a Bot — where delegated
+// exchanges with that Bot are recorded
+async function ensureBotConversation(bot) {
+  const conversations = store.load("conversations", []);
+  const existing = conversations
+    .filter((c) => c.botId === bot.id && !c.automationId)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  if (existing.length && existing[0].messages?.length) return existing[0].id;
+  const convId = crypto.randomUUID();
+  store.update("conversations", (list) => [
+    { id: convId, title: `${bot.emoji || "🤖"} ${bot.name}`, messages: [], createdAt: Date.now(), updatedAt: Date.now(), botId: bot.id, unread: 0 },
+    ...list,
+  ]);
+  store.onRebuild?.();
+  return convId;
+}
+
+// factory: a sendBotMessage tool implementation for a given sender Bot at a
+// given orchestration depth. depth caps Bots-messaging-Bots recursion.
+function makeBotMessenger({ bots, settings, controller, selfGuard, depth, currentBotId, currentBotName }) {
+  return async function sendBotMessage(targetName, message) {
+    const target = bots.find((b) => b.name.toLowerCase() === String(targetName || "").trim().toLowerCase());
+    if (!target) return { ok: false, error: `no Bot named "${String(targetName || "").slice(0, 60)}" — use bots_list to see the available ones` };
+    if (target.id === currentBotId) return { ok: false, error: "that is this Bot — the message would loop back to you" };
+    if (depth >= 2) return { ok: false, error: "orchestration depth limit reached (Bots messaging Bots messaging Bots is not allowed)" };
+    if (!String(message || "").trim()) return { ok: false, error: "empty message" };
+    const targetConvId = await ensureBotConversation(target);
+    const sub = await runAgentTurn({
+      settings,
+      history: [{ role: "user", content: (currentBotName + " handed you this subtask:\n\n" + String(message || "")).slice(0, 8000) }],
+      approvalMode: "auto",
+      botInstructions: target.instructions || "",
+      botKnowledge: target.knowledge || [],
+      memories: store.load("memories", []),
+      agentTools: settings.agentTools,
+      signal: controller.signal,
+      toolContext: {
+        botId: target.id,
+        sandboxScope: scopeId(target.id),
+        executionTarget: settings.executionTarget === "sandbox" ? "sandbox" : "local",
+        selfGuard: (toolName, toolArgs) => selfGuard.check(toolName, toolArgs),
+        orchestrationDepth: depth + 1,
+        sendBotMessage: makeBotMessenger({ bots, settings, controller, selfGuard, depth: depth + 1, currentBotId: target.id, currentBotName: target.name }),
+      },
+      events: { onStatus: () => {}, onDelta: () => {}, onToolCall: () => {}, onToolResult: () => {}, onApprovalRequest: () => Promise.resolve(true) },
+    });
+    // record the exchange in the target Bot's own conversation
+    const conversations = store.load("conversations", []);
+    const tconv = conversations.find((c) => c.id === targetConvId);
+    if (tconv) {
+      store.update("conversations", (list) =>
+        list.map((c) =>
+          c.id === targetConvId
+            ? {
+                ...c,
+                unread: (c.unread || 0) + 1,
+                updatedAt: Date.now(),
+                messages: [
+                  ...c.messages,
+                  { role: "user", content: ("[from " + currentBotName + "] " + String(message || "")).slice(0, 4000), ts: Date.now() },
+                  { role: "assistant", content: sub.text || "", ts: Date.now() },
+                ],
+              }
+            : c
+        )
+      );
+      store.onRebuild?.();
+    }
+    return { ok: true, from: target.name, reply: (sub.text || "").slice(0, 8000) };
+  };
+}
 
 // scheme privileges must be registered before app is ready
 require("electron").protocol.registerSchemesAsPrivileged([
@@ -635,7 +708,7 @@ function migrateSettings(saved) {
   return s;
 }
 
-ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mode }) => {
+ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roomBots, mode }) => {
   // An edit-and-resend (or retry) while the previous turn is still streaming
   // must close the old provider connection first — keyless tiers answer one
   // request per IP, so overlapping turns 429 with "previous request is still
@@ -694,12 +767,7 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
     return { ok: true, url: `emberling-media://${id}` };
   };
 
-  // per-agent local store: isolated per bot, "default" for plain chats
-  const { AgentStore } = require("./agent-store");
-  const agentStore = new AgentStore(path.join(app.getPath("userData"), "agent-store"), botId);
-
-  // auto-review rules: user-defined patterns over tool name + arguments that
-  // allow / deny / force-ask before the approval mode applies
+  // shared turn helpers (member-independent)
   const resolveAutoReview = (toolName, args) => {
     const rules = loadSettings().autoReviewRules;
     if (!Array.isArray(rules) || !rules.length) return null;
@@ -734,6 +802,56 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
     return { ok: true, summary: truncateMain(sub.text, 4000) };
   };
 
+  // per-member tool context: rooms give every member Bot its own store scope,
+  // VM and screen state, while shared surfaces (approvals, screenshots) are common
+  const buildToolContext = (memberBotId, memberBot) => {
+    const mScope = memberBotId ? scopeId(memberBotId) : "default";
+    const mStore = new AgentStore(path.join(app.getPath("userData"), "agent-store"), memberBotId);
+    return {
+      takeScreenshot,
+      takeScreenScreenshot,
+      saveMemory,
+      spawnSubagent,
+      requestForm,
+      uiAction: (action) => send("uiAction", action),
+      callMcp: (toolName) => mcp.resolveMcpCall(toolName),
+      getInteg,
+      getRemote,
+      store,
+      botId: memberBotId || "",
+      executionTarget: settings.executionTarget === "sandbox" ? "sandbox" : "local",
+      // per-Dotling VMs: each bot gets its own WSL distro, cloned lazily
+      sandboxScope: mScope,
+      agentStore: mStore,
+      saveBrowserShot,
+      resolveAutoReview,
+      selfGuard: (toolName, toolArgs) => selfGuard.check(toolName, toolArgs),
+      screenState: (entry) => require("./screen-state").recordScreenState(path.join(app.getPath("userData"), "agent-store"), memberBotId, entry),
+      allAutomations: store.load("automations", []),
+      allBots: bots,
+      saveAutomation: (a) => {
+        store.update("automations", (list) => [...list.filter((x) => x.id !== a.id), a]);
+      },
+      removeAutomation: (id) => {
+        store.update("automations", (list) => list.filter((x) => x.id !== id));
+      },
+      // bot-to-bot orchestration: run a capped sub-turn as the target Bot
+      // (its instructions, its own VM scope and store) and return its reply.
+      // The exchange is recorded in the target Bot's own conversation so the
+      // user can see what was asked and answered. Nested turns get their own
+      // messenger at depth+1, capped so Bots-messaging-Bots can't recurse.
+      sendBotMessage: makeBotMessenger({
+        bots, settings, controller, selfGuard, depth: 0,
+        currentBotId: memberBotId || "", currentBotName: memberBot?.name || "Emberling",
+      }),
+      tryIntegrationTool: async (call) => {
+        // dispatch order: Section-A integrations → plugins → null (local)
+        const viaInteg = await integTools.executeIntegrationTool(call, { getInteg, getRemote, store });
+        if (viaInteg !== null && viaInteg !== undefined) return viaInteg;
+        return plugins.executePluginTool(call, store);
+      },
+    };
+  };
   // user forms: same pending plumbing as approvals but with values
   const requestForm = (form) =>
     new Promise((resolve) => {
@@ -757,60 +875,75 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, mod
     const integTools = require("./integration-tools");
     const plugins = require("./plugins");
     const pluginDefs = plugins.agentToolDefs(store);
-    const result = await runAgentTurn({
-      settings,
-      history,
-      approvalMode: settings.approvalMode || "ask",
-      botInstructions: bot?.instructions || "",
-      botKnowledge: bot?.knowledge || [],
-      botSkills: bot?.skills || [],
-      mcpInstructions,
-      memories,
-      agentTools: settings.agentTools,
-      signal: controller.signal,
-      extraToolDefs: [...mcpDefs, ...integTools.TOOL_DEFS, ...pluginDefs],
-      toolContext: {
-        takeScreenshot,
-        takeScreenScreenshot,
-        saveMemory,
-        spawnSubagent,
-        requestForm,
-        uiAction: (action) => send("uiAction", action),
-        callMcp: (toolName) => mcp.resolveMcpCall(toolName),
-        getInteg,
-        getRemote,
-        store,
-        botId: botId || "",
-        executionTarget: settings.executionTarget === "sandbox" ? "sandbox" : "local",
-        // per-Dotling VMs: each bot gets its own WSL distro, cloned lazily
-        sandboxScope: botId ? scopeId(botId) : "default",
-        agentStore,
-        saveBrowserShot,
-        resolveAutoReview,
-        selfGuard: (toolName, toolArgs) => selfGuard.check(toolName, toolArgs),
-        screenState: (entry) => require("./screen-state").recordScreenState(path.join(app.getPath("userData"), "agent-store"), botId, entry),
-        allAutomations: store.load("automations", []),
-        saveAutomation: (a) => {
-          store.update("automations", (list) => [...list.filter((x) => x.id !== a.id), a]);
+
+    // Room orchestration (the original's group chats): when multiple Bots are
+    // members, EVERY member processes the message in turn — each with its own
+    // instructions, VM scope and store — and each reply lands as its own
+    // labeled bubble. Single bot / default chats keep the existing path.
+    const roomList = Array.isArray(roomBots)
+      ? [...new Set(roomBots.filter((id) => id && bots.some((b) => b.id === id)))]
+      : [];
+    if ((botId || "") && !roomList.includes(botId)) roomList.unshift(botId);
+    const isRoom = roomList.length > 1;
+
+    let result = null;
+    if (isRoom) {
+      const texts = [];
+      for (let mi = 0; mi < roomList.length; mi++) {
+        if (controller.signal.aborted) break;
+        const mBot = bots.find((b) => b.id === roomList[mi]) || { name: "Emberling", instructions: "", knowledge: [], skills: [] };
+        send("member-start", { botId: mBot.id, name: mBot.name, emoji: mBot.emoji });
+        const r = await runAgentTurn({
+          settings,
+          history,
+          approvalMode: settings.approvalMode || "ask",
+          botInstructions: mBot.instructions || "",
+          botKnowledge: mBot.knowledge || [],
+          botSkills: mBot.skills || [],
+          mcpInstructions,
+          memories,
+          agentTools: settings.agentTools,
+          signal: controller.signal,
+          extraToolDefs: [...mcpDefs, ...integTools.TOOL_DEFS, ...pluginDefs],
+          toolContext: buildToolContext(mBot.id, mBot),
+          events: {
+            onStatus: (text) => send("status", { text }),
+            onDelta: (delta) => send("delta", { delta }),
+            onToolCall: (call) => send("toolCall", { call }),
+            onToolResult: (call, res) => send("toolResult", { call, result: res }),
+            onApprovalRequest: askApproval,
+          },
+        });
+        trackUsage(settings, r?.usage);
+        texts.push(((mBot.emoji ? mBot.emoji + " " : "") + "**" + mBot.name + "**\n\n" + (r.text || "")).trim());
+        if (r.stopped) break;
+      }
+      result = { text: texts.join("\n\n---\n\n") };
+    } else {
+      const singleBotId = roomList[0] || "";
+      const mBot = singleBotId ? bots.find((b) => b.id === singleBotId) : bot;
+      result = await runAgentTurn({
+        settings,
+        history,
+        approvalMode: settings.approvalMode || "ask",
+        botInstructions: mBot?.instructions || "",
+        botKnowledge: mBot?.knowledge || [],
+        botSkills: mBot?.skills || [],
+        mcpInstructions,
+        memories,
+        agentTools: settings.agentTools,
+        signal: controller.signal,
+        extraToolDefs: [...mcpDefs, ...integTools.TOOL_DEFS, ...pluginDefs],
+        toolContext: buildToolContext(singleBotId, mBot),
+        events: {
+          onStatus: (text) => send("status", { text }),
+          onDelta: (delta) => send("delta", { delta }),
+          onToolCall: (call) => send("toolCall", { call }),
+          onToolResult: (call, res) => send("toolResult", { call, result: res }),
+          onApprovalRequest: askApproval,
         },
-        removeAutomation: (id) => {
-          store.update("automations", (list) => list.filter((x) => x.id !== id));
-        },
-        tryIntegrationTool: async (call) => {
-          // dispatch order: Section-A integrations → plugins → null (local)
-          const viaInteg = await integTools.executeIntegrationTool(call, { getInteg, getRemote, store });
-          if (viaInteg !== null && viaInteg !== undefined) return viaInteg;
-          return plugins.executePluginTool(call, store);
-        },
-      },
-      events: {
-        onStatus: (text) => send("status", { text }),
-        onDelta: (delta) => send("delta", { delta }),
-        onToolCall: (call) => send("toolCall", { call }),
-        onToolResult: (call, result) => send("toolResult", { call, result }),
-        onApprovalRequest: askApproval,
-      },
-    });
+      });
+    }
     // drain any approval/form that was never answered
     for (const id of approvals) {
       pendingApprovals.get(id)?.resolve(false);

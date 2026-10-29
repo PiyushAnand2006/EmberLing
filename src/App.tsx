@@ -174,6 +174,22 @@ function useAgentOrchestration() {
         } else if (payload?.type === "memory-saved") {
           toast(`Memory saved: ${String(payload.text || "").slice(0, 60)}`);
         }
+      } else if (type === "member-start") {
+        // room orchestration: close any pending member bubble, open the next
+        // member Bot's labeled pending bubble
+        setConversations((list) =>
+          list.map((c) =>
+            c.id === conversationId
+              ? {
+                  ...c,
+                  messages: [
+                    ...c.messages.map((m) => (m.pending && m.role === "assistant" ? { ...m, pending: false, status: undefined } : m)),
+                    { id: uid(), role: "assistant", content: "", ts: Date.now(), pending: true, status: "Working", botLabel: `${payload.emoji || "🤖"} ${payload.name || "Bot"}` },
+                  ],
+                }
+              : c
+          )
+        );
       } else if (type === "done") {
         setConversations((list) => {
           const conv = list.find((c) => c.id === conversationId);
@@ -248,6 +264,10 @@ function useAgentOrchestration() {
       }
       const convId = conv.id;
       const botId = conv.botId || "";
+      const roomBots = Array.isArray(conv.roomBots) ? conv.roomBots : [];
+      // rooms: main sends member-start per member — no pre-made bubble here,
+      // each member Bot gets its own labeled pending bubble from the event
+      const isRoom = roomBots.length > 0;
       const assistantMsg: Message = { id: uid(), role: "assistant", content: "", ts: Date.now(), pending: true, status: "Working" };
 
       if (opts?.editMessageId) {
@@ -257,11 +277,12 @@ function useAgentOrchestration() {
           const original = conv.messages[idx];
           const edited: Message = { ...original, content: text, edited: true, revisions: [...(original.revisions || []), original.content].slice(-5) };
           const kept = conv.messages.slice(0, idx);
-          setConversations((list) => list.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now(), messages: [...kept, edited, assistantMsg] } : c)));
+          setConversations((list) => list.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now(), messages: isRoom ? [...kept, edited] : [...kept, edited, assistantMsg] } : c)));
           setBusyId(convId);
-          const res = await window.emberling.agent.send({ conversationId: convId, history: buildHistory({ ...conv, messages: [...kept, edited] }), botId, mode: "visible" });
+          const res = await window.emberling.agent.send({ conversationId: convId, history: buildHistory({ ...conv, messages: [...kept, edited] }), botId, roomBots, mode: "visible" });
           if (!res.ok) {
-            patchMessage(convId, assistantMsg.id, (m) => ({ ...m, pending: false, status: undefined, error: res.error }));
+            if (!isRoom) patchMessage(convId, assistantMsg.id, (m) => ({ ...m, pending: false, status: undefined, error: res.error }));
+            else toast("Turn failed — " + (res.error || "check provider settings").slice(0, 80));
             setBusyId(null);
           }
           return;
@@ -270,16 +291,16 @@ function useAgentOrchestration() {
 
       const userMsg: Message = { id: uid(), role: "user", content: text, ts: Date.now(), attachments };
       setConversations((list) =>
-        list.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now(), messages: [...c.messages, userMsg, assistantMsg] } : c))
+        list.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now(), messages: isRoom ? [...c.messages, userMsg] : [...c.messages, userMsg, assistantMsg] } : c))
       );
       if (conv.title === "New chat" && text) {
         setConversations((list) => list.map((c) => (c.id === convId ? { ...c, title: text.slice(0, 42) } : c)));
       }
       setBusyId(convId);
       const history = opts?.historyOverride || buildHistory({ ...conv, messages: [...conv.messages, userMsg] });
-      const res = await window.emberling.agent.send({ conversationId: convId, history, botId, mode: "visible" });
+      const res = await window.emberling.agent.send({ conversationId: convId, history, botId, roomBots, mode: "visible" });
       if (!res.ok) {
-        if (settingsRef.current.queueOffline && !opts?.fromQueue) {
+        if (settingsRef.current.queueOffline && !opts?.fromQueue && !isRoom) {
           // offline queue: pull the failed turn back out and keep it pending
           setConversations((list) =>
             list.map((c) =>
@@ -296,9 +317,9 @@ function useAgentOrchestration() {
           toast("Provider unavailable — message queued");
           return;
         }
-        patchMessage(convId, assistantMsg.id, (m) => ({ ...m, pending: false, status: undefined, error: res.error }));
+        if (!isRoom) patchMessage(convId, assistantMsg.id, (m) => ({ ...m, pending: false, status: undefined, error: res.error }));
         setBusyId(null);
-        toast("Turn failed — check provider settings");
+        toast("Turn failed — " + (res.error || "check provider settings").slice(0, 80));
       }
     },
     [conversations, setConversations, setActiveConversationId, buildHistory, patchMessage, toast]
@@ -623,6 +644,24 @@ function ChatScreen() {
                     )
                   ),
             })),
+            { section: "Room members - process every message" },
+            ...bots.map((b) => {
+              const member = (conversation?.roomBots || []).includes(b.id);
+              return {
+                label: `${member ? "✓ " : "＋ "}${b.emoji} ${b.name}`,
+                icon: member ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
+                onClick: () =>
+                  conversation &&
+                  app.setConversations((list) =>
+                    list.map((c) => {
+                      if (c.id !== conversation.id) return c;
+                      const cur = Array.isArray(c.roomBots) ? c.roomBots : [];
+                      const next = member ? cur.filter((id) => id !== b.id) : [...cur, b.id];
+                      return { ...c, roomBots: next };
+                    })
+                  ),
+              };
+            }),
           ]}
         />
         <div className="header-title">
