@@ -802,6 +802,13 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
     return { ok: true, summary: truncateMain(sub.text, 4000) };
   };
 
+  // tool-context module deps — hoisted above buildToolContext (its closures
+  // reference these; declaring them inside the try left the closures with a
+  // ReferenceError: integTools is not defined)
+  const mcp = require("./mcp");
+  const integTools = require("./integration-tools");
+  const plugins = require("./plugins");
+
   // per-member tool context: rooms give every member Bot its own store scope,
   // VM and screen state, while shared surfaces (approvals, screenshots) are common
   const buildToolContext = (memberBotId, memberBot) => {
