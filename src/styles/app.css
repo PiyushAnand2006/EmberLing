@@ -545,6 +545,10 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .composer:focus-within { border-color: rgba(255,255,255,0.2); }
 .composer > .tiptap { flex: 1; min-width: 0; }
+/* EditorContent wraps the ProseMirror node in a plain div — stretch that
+   wrapper so the chips + mic pin to the pill's right edge */
+.composer-editor { flex: 1; min-width: 0; }
+.composer-editor .composer-input { width: 100%; }
 .composer-plus { margin-bottom: 5px; }
 .chip-btn { margin-bottom: 5px; }
 .composer-input {

@@ -238,23 +238,23 @@ export function Composer({
             { label: "Teach a task", icon: <span style={{ fontSize: 13 }}>🎓</span>, onClick: () => window.dispatchEvent(new CustomEvent("emberling:teach")) },
           ]}
         />
-        <RichEditor
-          value={text}
-          onReady={(editor) => (editorRef.current = editor)}
-          onChange={(md) => {
-            setText(md);
-            const m = md.match(/\/(\w*)$/);
-            if (m && (md.slice(0, -m[0].length) === "" || /\s$/.test(md.slice(0, -m[0].length)))) {
-              setSlashOpen(true);
-              setSlashFilter(m[1]);
-            } else setSlashOpen(false);
-          }}
-          placeholder={activeBot ? `Message ${activeBot.name}…` : "Ask anything"}
-          onEnter={send}
-          autoFocus
-        />
-
-        <div className="spacer" />
+        <div className="composer-editor">
+          <RichEditor
+            value={text}
+            onReady={(editor) => (editorRef.current = editor)}
+            onChange={(md) => {
+              setText(md);
+              const m = md.match(/\/(\w*)$/);
+              if (m && (md.slice(0, -m[0].length) === "" || /\s$/.test(md.slice(0, -m[0].length)))) {
+                setSlashOpen(true);
+                setSlashFilter(m[1]);
+              } else setSlashOpen(false);
+            }}
+            placeholder={activeBot ? `Message ${activeBot.name}…` : "Ask anything"}
+            onEnter={send}
+            autoFocus
+          />
+        </div>
 
         {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)", marginBottom: 6 }}>{(recordMs / 1000).toFixed(1)}s</span>}
 
