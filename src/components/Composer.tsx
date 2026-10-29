@@ -221,7 +221,7 @@ export function Composer({
           ))}
         </div>
       )}
-      {/* pill row: + hub | editor | model + approval chips | mic/send */}
+      {/* pill row: + hub | editor (stretches) | model + approval chips + mic/send at the right */}
       <div className="composer">
         {/* "+" hub — the original's Composer actions menu: attach / voice memo / teach */}
         <PopoverMenu
@@ -238,83 +238,6 @@ export function Composer({
             { label: "Teach a task", icon: <span style={{ fontSize: 13 }}>🎓</span>, onClick: () => window.dispatchEvent(new CustomEvent("emberling:teach")) },
           ]}
         />
-          <PopoverMenu
-            align="start"
-            header="Model"
-            trigger={(open) => (
-              <button className="chip-btn" onClick={open} title={`Model · provider: ${activeProvider?.name || "none"}`}>
-                <IconSparkles size={12} />
-                <span className="chip-label">{activeProvider ? `${activeProvider.name.split(" ")[0]} · ${activeModel.split("/").pop()!.slice(0, 22)}` : "Set up model"}</span>
-                <IconChevronDown size={11} />
-              </button>
-            )}
-            items={
-              activeProvider
-                ? [
-                    ...activeProvider.models.map((m) => ({
-                      label: `${m.name} — ${m.note}`,
-                      modelId: m.id,
-                    })),
-                    // discovered models: keep the in-chat menu fast — cap the
-                    // inline list and point to Settings for the full catalog
-                    ...((creds?.models as string[]) || [])
-                      .filter((id: string) => !activeProvider.models.some((m) => m.id === id))
-                      .slice(0, 60)
-                      .map((id: string) => ({ label: id, modelId: id })),
-                    ...((creds?.models as string[]) || []).length > 60
-                      ? [{ label: `… ${((creds?.models as string[]) || []).length - 60} more — pick in Settings → General`, modelId: "" }]
-                      : [],
-                  ]
-                    .map((m) =>
-                      m.modelId
-                        ? {
-                            label: m.label,
-                            icon: creds?.model === m.modelId ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
-                            onClick: () =>
-                              setSettings((s) => ({
-                                ...s,
-                                providers: { ...s.providers, [s.activeProvider]: { ...(creds || {}), apiKey: creds?.apiKey || "", model: m.modelId } },
-                              })),
-                          }
-                        : {
-                            label: m.label,
-                            icon: <span style={{ width: 13 }} />,
-                            onClick: () => {},
-                          }
-                    )
-                : [{ label: "Add a provider in Settings → General", onClick: () => {} }]
-            }
-        />
-
-        <PopoverMenu
-          align="start"
-          header="Approval mode"
-          trigger={(open) => (
-            <button className="chip-btn" onClick={open} title="Approval mode">
-              <IconShield size={12} />
-              <span className="chip-label">{APPROVAL_LABELS[settings.approvalMode]}</span>
-              <IconChevronDown size={11} />
-            </button>
-          )}
-          items={(["ask", "askRisky", "auto"] as const).map((mode) => ({
-            label: APPROVAL_LABELS[mode],
-            icon: settings.approvalMode === mode ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
-            onClick: () => setSettings((s) => ({ ...s, approvalMode: mode })),
-          }))}
-        />
-
-        {/* mic on the left: idle = record voice memo; recording = stop (timer) */}
-        {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)", marginBottom: 6 }}>{(recordMs / 1000).toFixed(1)}s</span>}
-        {!busy && (
-          <button
-            className={`composer-round${recording ? " recording" : ""}`}
-            title={recording ? "Stop recording" : "Record voice message"}
-            onClick={recording ? stopRecording : startRecording}
-          >
-            <IconMic size={16} />
-          </button>
-        )}
-
         <RichEditor
           value={text}
           onReady={(editor) => (editorRef.current = editor)}
@@ -333,6 +256,73 @@ export function Composer({
 
         <div className="spacer" />
 
+        {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)", marginBottom: 6 }}>{(recordMs / 1000).toFixed(1)}s</span>}
+
+        <PopoverMenu
+          align="end"
+          header="Model"
+          trigger={(open) => (
+            <button className="chip-btn" onClick={open} title={`Model · provider: ${activeProvider?.name || "none"}`}>
+              <IconSparkles size={12} />
+              <span className="chip-label">{activeProvider ? `${activeProvider.name.split(" ")[0]} · ${activeModel.split("/").pop()!.slice(0, 22)}` : "Set up model"}</span>
+              <IconChevronDown size={11} />
+            </button>
+          )}
+          items={
+            activeProvider
+              ? [
+                  ...activeProvider.models.map((m) => ({
+                    label: `${m.name} — ${m.note}`,
+                    modelId: m.id,
+                  })),
+                  // discovered models: keep the in-chat menu fast — cap the
+                  // inline list and point to Settings for the full catalog
+                  ...((creds?.models as string[]) || [])
+                    .filter((id: string) => !activeProvider.models.some((m) => m.id === id))
+                    .slice(0, 60)
+                    .map((id: string) => ({ label: id, modelId: id })),
+                  ...((creds?.models as string[]) || []).length > 60
+                    ? [{ label: `… ${((creds?.models as string[]) || []).length - 60} more — pick in Settings → General`, modelId: "" }]
+                    : [],
+                ]
+                  .map((m) =>
+                    m.modelId
+                      ? {
+                          label: m.label,
+                          icon: creds?.model === m.modelId ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
+                          onClick: () =>
+                            setSettings((s) => ({
+                              ...s,
+                              providers: { ...s.providers, [s.activeProvider]: { ...(creds || {}), apiKey: creds?.apiKey || "", model: m.modelId } },
+                            })),
+                        }
+                      : {
+                          label: m.label,
+                          icon: <span style={{ width: 13 }} />,
+                          onClick: () => {},
+                        }
+                  )
+              : [{ label: "Add a provider in Settings → General", onClick: () => {} }]
+          }
+        />
+
+        <PopoverMenu
+          align="end"
+          header="Approval mode"
+          trigger={(open) => (
+            <button className="chip-btn" onClick={open} title="Approval mode">
+              <IconShield size={12} />
+              <span className="chip-label">{APPROVAL_LABELS[settings.approvalMode]}</span>
+              <IconChevronDown size={11} />
+            </button>
+          )}
+          items={(["ask", "askRisky", "auto"] as const).map((mode) => ({
+            label: APPROVAL_LABELS[mode],
+            icon: settings.approvalMode === mode ? <IconCheck size={13} /> : <span style={{ width: 13 }} />,
+            onClick: () => setSettings((s) => ({ ...s, approvalMode: mode })),
+          }))}
+        />
+
         {busy ? (
           <button className="send-btn stop" title="Stop" onClick={onStop}>
             <IconStop size={13} />
@@ -341,7 +331,15 @@ export function Composer({
           <button className="send-btn" title="Send" onClick={send}>
             <IconSend size={15} />
           </button>
-        ) : null}
+        ) : (
+          <button
+            className={`composer-round${recording ? " recording" : ""}`}
+            title={recording ? "Stop recording" : "Record voice message"}
+            onClick={recording ? stopRecording : startRecording}
+          >
+            <IconMic size={16} />
+          </button>
+        )}
       </div>
     </div>
   );
