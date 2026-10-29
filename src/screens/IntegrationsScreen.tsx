@@ -20,17 +20,19 @@ export function IntegrationsScreen() {
           Real connections — each one adds working tools to the agent. Tokens are encrypted with Windows DPAPI (bound to this device and account).
         </div>
 
-        <RepoCard id="github" name="GitHub" icon="🐙" desc="Personal access token (repo scope). Adds: list repos, read/write files, issues, pull requests, comments." keyHint="https://github.com/settings/tokens" />
-        <RepoCard id="gitlab" name="GitLab" icon="🦊" desc="Personal access token (api scope). Adds: list projects, read files, issues." keyHint="https://gitlab.com/-/user_settings/personal_access_tokens" />
-        <RepoCard id="bitbucket" name="Bitbucket" icon="🪣" desc="App password as 'email:password'. Adds: list repositories, read files." keyHint="https://bitbucket.org/account/settings/app-passwords/" />
-        <RepoCard id="azure" name="Azure DevOps" icon="🔵" desc="PAT + organization. Adds: list projects, read repo files." keyHint="https://dev.azure.com → User settings → Personal access tokens" orgField />
+        <div className="integ-grid">
+          <RepoCard id="github" name="GitHub" icon="🐙" desc="Personal access token (repo scope). Adds: list repos, read/write files, issues, pull requests, comments." keyHint="https://github.com/settings/tokens" />
+          <RepoCard id="gitlab" name="GitLab" icon="🦊" desc="Personal access token (api scope). Adds: list projects, read files, issues." keyHint="https://gitlab.com/-/user_settings/personal_access_tokens" />
+          <RepoCard id="bitbucket" name="Bitbucket" icon="🪣" desc="App password as 'email:password'. Adds: list repositories, read files." keyHint="https://bitbucket.org/account/settings/app-passwords/" />
+          <RepoCard id="azure" name="Azure DevOps" icon="🔵" desc="PAT + organization. Adds: list projects, read repo files." keyHint="https://dev.azure.com → User settings → Personal access tokens" orgField />
 
-        <SlackCard />
-        <TeamsCard />
-        <EmailCard />
-        <OnePasswordCard />
-        <IMessageCard />
-        <RemoteCard />
+          <SlackCard />
+          <TeamsCard />
+          <EmailCard />
+          <OnePasswordCard />
+          <IMessageCard />
+          <RemoteCard wide />
+        </div>
 
         <div style={{ fontSize: 12, color: "var(--cursor-text-quaternary)", marginTop: 14 }}>
           Linear, Zoom and Google connectors in the original require their vendor OAuth backends; their flows are represented as connect state and the agent can still reach public services through its web tools.
@@ -47,32 +49,29 @@ function useInteg(id: string): [any, (patch: any) => void] {
   return [value, set];
 }
 
-function CardShell({ icon, name, desc, connected, children, keyHint }: { icon: string; name: string; desc: string; connected?: boolean; children?: React.ReactNode; keyHint?: string }) {
+function CardShell({ icon, name, desc, connected, children, keyHint, wide }: { icon: string; name: string; desc: string; connected?: boolean; children?: React.ReactNode; keyHint?: string; wide?: boolean }) {
   return (
-    <div className="settings-group" style={{ borderColor: connected ? "rgba(63,162,102,0.45)" : undefined }}>
-      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 20 }}>{icon}</span>
-          <strong style={{ flex: 1 }}>{name}</strong>
-          {connected && <span className="badge ok">Connected</span>}
-        </div>
-        <div style={{ fontSize: 12, color: "var(--cursor-text-tertiary)" }}>{desc}</div>
-        {keyHint && (
-          <div style={{ fontSize: 12 }}>
-            Get one free:{" "}
-            <a href={keyHint} target="_blank" rel="noreferrer" style={{ color: "var(--cursor-blue)" }}>
-              {keyHint.replace(/^https?:\/\//, "")}
-            </a>
-          </div>
-        )}
-        {children}
+    <div className={`integ-card${connected ? " connected" : ""}`} style={wide ? { gridColumn: "1 / -1" } : undefined}>
+      <div className="integ-head">
+        <span className="integ-tile">{icon}</span>
+        <strong>{name}</strong>
+        <span className={`badge ${connected ? "ok" : "neutral"}`}>{connected ? "Connected" : "Not connected"}</span>
       </div>
+      <div className="integ-desc">{desc}</div>
+      {keyHint && (
+        <div style={{ fontSize: 12 }}>
+          Get one free:{" "}
+          <a href={keyHint} target="_blank" rel="noreferrer" style={{ color: "var(--cursor-blue)" }}>
+            {keyHint.replace(/^https?:\/\//, "")}
+          </a>
+        </div>
+      )}
+      {children && <div className="integ-body">{children}</div>}
     </div>
   );
 }
 
-function RepoCard({ id, name, icon, desc, keyHint, orgField }: { id: string; name: string; icon: string; desc: string; keyHint: string; orgField?: boolean }) {
-  const { toast } = useApp();
+function RepoCard({ id, name, icon, desc, keyHint, orgField }: { id: string; name: string; icon: string; desc: string; keyHint: string; orgField?: boolean }) {  const { toast } = useApp();
   const [cfg, set] = useInteg(id);
   const [token, setToken] = useState(cfg.apiToken || "");
   const [org, setOrg] = useState(cfg.org || "");
@@ -98,8 +97,8 @@ function RepoCard({ id, name, icon, desc, keyHint, orgField }: { id: string; nam
   return (
     <CardShell icon={icon} name={name} desc={desc} connected={connected} keyHint={keyHint}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <input className="text-input" style={{ flex: 1, minWidth: 220 }} type="password" placeholder="API token" value={token} onChange={(e) => setToken(e.target.value)} />
-        {orgField && <input className="text-input" style={{ width: 150 }} placeholder="Organization" value={org} onChange={(e) => setOrg(e.target.value)} />}
+        <input className="text-input" style={{ flex: 1, minWidth: 180 }} type="password" placeholder="API token" value={token} onChange={(e) => setToken(e.target.value)} />
+        {orgField && <input className="text-input" style={{ width: 130 }} placeholder="Organization" value={org} onChange={(e) => setOrg(e.target.value)} />}
         <button className="btn primary" onClick={saveAndTest} disabled={testing || !token.trim()}>
           {testing ? "Testing…" : connected ? "Reconnect" : "Connect"}
         </button>
@@ -240,13 +239,13 @@ function EmailCard() {
     <CardShell icon="✉️" name="Email (SMTP + IMAP)" desc="Works with Gmail/Outlook/Fastmail app passwords. Adds: email_send, email_search, email_read. Presets: Gmail = smtp.gmail.com:587 + imap.gmail.com:993." connected={connected}>
       <div style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input className="text-input" style={{ flex: 1, minWidth: 160 }} placeholder="SMTP host" value={form.smtpHost} onChange={(e) => setForm({ ...form, smtpHost: e.target.value })} />
-          <input className="text-input" style={{ width: 90 }} placeholder="Port" value={form.smtpPort} onChange={(e) => setForm({ ...form, smtpPort: e.target.value })} />
-          <input className="text-input" style={{ flex: 1, minWidth: 160 }} placeholder="IMAP host" value={form.imapHost} onChange={(e) => setForm({ ...form, imapHost: e.target.value })} />
+          <input className="text-input" style={{ flex: "1 1 0", minWidth: 120 }} placeholder="SMTP host" value={form.smtpHost} onChange={(e) => setForm({ ...form, smtpHost: e.target.value })} />
+          <input className="text-input" style={{ width: 70, flex: "none" }} placeholder="Port" value={form.smtpPort} onChange={(e) => setForm({ ...form, smtpPort: e.target.value })} />
+          <input className="text-input" style={{ flex: "1 1 0", minWidth: 120 }} placeholder="IMAP host" value={form.imapHost} onChange={(e) => setForm({ ...form, imapHost: e.target.value })} />
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input className="text-input" style={{ flex: 1, minWidth: 200 }} placeholder="Email address" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
-          <input className="text-input" style={{ flex: 1, minWidth: 160 }} type="password" placeholder={cfg.passwordSet || cfg.password ? "App password saved — replace?" : "App password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <input className="text-input" style={{ flex: "1 1 0", minWidth: 140 }} placeholder="Email address" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
+          <input className="text-input" style={{ flex: "1 1 0", minWidth: 140 }} type="password" placeholder={cfg.passwordSet || cfg.password ? "App password saved — replace?" : "App password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
         </div>
         <div>
           <button className="btn primary" onClick={save} disabled={saving || !form.user.trim() || !form.smtpHost.trim()}>
@@ -288,7 +287,7 @@ function IMessageCard() {
   );
 }
 
-function RemoteCard() {
+function RemoteCard({ wide }: { wide?: boolean }) {
   const { settings, setSettings, toast } = useApp();
   const [cfg, setCfg] = useState<any>((settings as any).remote || { name: "default", host: "", port: 22, user: "" });
   const [keyInfo, setKeyInfo] = useState<{ publicKey?: string; privateKeyPath?: string } | null>(null);
@@ -319,7 +318,7 @@ function RemoteCard() {
   };
 
   return (
-    <CardShell icon="🖥️" name="Remote computer — “On its computer”" desc="Run the agent's shell/file tools on another machine over SSH (any VM or PC with OpenSSH). Generate the key, append the public key to the remote's authorized_keys, then flip the execution target.">
+    <CardShell icon="🖥️" name="Remote computer — “On its computer”" desc="Run the agent's shell/file tools on another machine over SSH (any VM or PC with OpenSSH). Generate the key, append the public key to the remote's authorized_keys, then flip the execution target." wide={wide}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input className="text-input" style={{ width: 130 }} placeholder="Profile name" value={cfg.name} onChange={(e) => setCfg({ ...cfg, name: e.target.value })} />
         <input className="text-input" style={{ flex: 1, minWidth: 150 }} placeholder="Host / IP" value={cfg.host} onChange={(e) => setCfg({ ...cfg, host: e.target.value })} />

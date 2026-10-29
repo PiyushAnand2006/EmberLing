@@ -238,22 +238,8 @@ export function Composer({
             { label: "Teach a task", icon: <span style={{ fontSize: 13 }}>🎓</span>, onClick: () => window.dispatchEvent(new CustomEvent("emberling:teach")) },
           ]}
         />
-        <RichEditor
-          value={text}
-          onReady={(editor) => (editorRef.current = editor)}
-          onChange={(md) => {
-            setText(md);
-            const m = md.match(/\/(\w*)$/);
-            if (m && (md.slice(0, -m[0].length) === "" || /\s$/.test(md.slice(0, -m[0].length)))) {
-              setSlashOpen(true);
-              setSlashFilter(m[1]);
-            } else setSlashOpen(false);
-          }}
-          placeholder={activeBot ? `Message ${activeBot.name}…` : "Ask anything"}
-          onEnter={send}
-          autoFocus
-        />
           <PopoverMenu
+            align="start"
             header="Model"
             trigger={(open) => (
               <button className="chip-btn" onClick={open} title={`Model · provider: ${activeProvider?.name || "none"}`}>
@@ -301,6 +287,7 @@ export function Composer({
         />
 
         <PopoverMenu
+          align="start"
           header="Approval mode"
           trigger={(open) => (
             <button className="chip-btn" onClick={open} title="Approval mode">
@@ -316,9 +303,35 @@ export function Composer({
           }))}
         />
 
-        <div className="spacer" />
+        {/* mic on the left: idle = record voice memo; recording = stop (timer) */}
+        {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)", marginBottom: 6 }}>{(recordMs / 1000).toFixed(1)}s</span>}
+        {!busy && (
+          <button
+            className={`composer-round${recording ? " recording" : ""}`}
+            title={recording ? "Stop recording" : "Record voice message"}
+            onClick={recording ? stopRecording : startRecording}
+          >
+            <IconMic size={16} />
+          </button>
+        )}
 
-        {recording && <span style={{ fontSize: 12, color: "var(--cursor-danger)", marginBottom: 4 }}>{(recordMs / 1000).toFixed(1)}s</span>}
+        <RichEditor
+          value={text}
+          onReady={(editor) => (editorRef.current = editor)}
+          onChange={(md) => {
+            setText(md);
+            const m = md.match(/\/(\w*)$/);
+            if (m && (md.slice(0, -m[0].length) === "" || /\s$/.test(md.slice(0, -m[0].length)))) {
+              setSlashOpen(true);
+              setSlashFilter(m[1]);
+            } else setSlashOpen(false);
+          }}
+          placeholder={activeBot ? `Message ${activeBot.name}…` : "Ask anything"}
+          onEnter={send}
+          autoFocus
+        />
+
+        <div className="spacer" />
 
         {busy ? (
           <button className="send-btn stop" title="Stop" onClick={onStop}>
@@ -328,15 +341,7 @@ export function Composer({
           <button className="send-btn" title="Send" onClick={send}>
             <IconSend size={15} />
           </button>
-        ) : (
-          <button
-            className={`composer-round${recording ? " recording" : ""}`}
-            title={recording ? "Stop recording" : "Record voice message"}
-            onClick={recording ? stopRecording : startRecording}
-          >
-            <IconMic size={16} />
-          </button>
-        )}
+        ) : null}
       </div>
     </div>
   );

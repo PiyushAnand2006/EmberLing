@@ -107,7 +107,7 @@ iwr https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/update.ps1 
 
 ```powershell
 # a specific version
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Version 0.75.13
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Version 0.75.14
 
 # portable build (single exe into your Downloads folder, no install)
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Portable
@@ -162,6 +162,7 @@ npm start            # rebuild + launch
 
 | Version | Highlights |
 |---|---|
+| **v0.75.14** | Orchestration (Rooms: every member Bot processes each message; `bot_message` delegation, depth-capped), self-protection firewall (install tree / security configs / self-kill denied), one-command PowerShell install + update, WSL sandbox verified live on real distros, browser stop + restore-bubble fixes, pill composer + Composer actions menu, bot chats fronted by their Dotling face |
 | **v0.75.13** | Teams sign-in completes (consent-fallback client chain, token refresh, staged errors); automation completion/failure visibility (failure toasts, error entries, per-automation notify toggle) |
 | **v0.75.12** | Per-Dotling private Linux VMs (approval-free execution, headless automations), browser control over CDP, versioned per-bot agent store, auto-review rules, automation webhooks + Run now, live streaming STT, link previews, KaTeX, in-app auto-updater |
 | v0.75.10–11 | Integration stack (GitHub/GitLab/Bitbucket/Azure, Slack, Teams, SMTP/IMAP, 1Password, SSH remote), plugins/skills/contacts/calendar, computer-use clicks, TipTap composer, MCP marketplace, 36-locale i18n, Dotling mascots |
@@ -202,7 +203,7 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 
 **Composer** — markdown toolbar (bold/italic/code/link/lists/code block), slash commands (`/image`, `/video`, `/diagram`, `/chart`, `/preview`, `/search`, `/form`, `/teach`), file attachments, voice memos with playback + transcription, model picker, approval chip, bot selector.
 
-**Agent tools (37 core)** — `run_command`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web_search` (keyless), `web_fetch`, `link_preview` (SSRF-guarded), `generate_photo` (keyless), `generate_video` (keyless clips), `screenshot` (app), `screen_screenshot`, `screen_click`/`screen_scroll` (real input automation), `spawn_subagent`, `request_user_form`, `react_to_message`, `send_email` (mailto + .eml draft), `list_windows`, `focus_window`, `type_text`, `get_window_rect`, `save_memory`, plus the 8 **browser** tools and 6 **agent store** tools below. Each is individually toggleable in Settings → General.
+**Agent tools (42 core)** — `run_command`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web_search` (keyless), `web_fetch`, `link_preview` (SSRF-guarded), `generate_photo` (keyless), `generate_video` (keyless clips), `screenshot` (app), `screen_screenshot`, `screen_click`/`screen_scroll` (real input automation), `spawn_subagent`, `request_user_form`, `react_to_message`, `send_email` (mailto + .eml draft), `list_windows`, `focus_window`, `type_text`, `get_window_rect`, `save_memory`, plus the 8 **browser** tools, 6 **agent store** tools and 5 **orchestration/routine** tools below. Each is individually toggleable in Settings → General.
 
 **Linux sandbox — per-Dotling VMs** — Settings → General → *Linux sandbox (WSL)*: install a base distribution once (one UAC prompt), and **every Dotling gets its own private WSL Ubuntu VM** cloned lazily from that image — fully isolated filesystems, no per-bot download. With the target on, shell/file tools execute inside the VM in POSIX bash **without any approval prompt** (the VM boundary is the isolation), automations and webhook runs execute headlessly in their Dotling's VM, and a **Run now** button tests any automation on demand. While a VM is unavailable, tools fall back to this computer with an explicit note — and host-side actions keep their normal approval gating.
 
@@ -213,6 +214,10 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 **Auto-review rules** — pattern-based overrides evaluated before the approval mode: e.g. auto-allow `git status`, always ask before `npm publish`, deny `/rm -rf/`. Plain-text or `/regex/` patterns match against the tool call; first match wins. Edited in Settings → General.
 
 **Automation webhooks + Run now** — any automation can expose a keyed `POST http://127.0.0.1:<port>/webhook/<id>?key=…` trigger (loopback-only server, token shown once, copied to clipboard on enable). The Automations screen has a **Run now** button for on-demand testing.
+
+**Orchestration — Rooms & delegation** — add multiple Bots as **Room members** and every member processes each message in turn, each with its own instructions, VM scope and store; replies land as separate bubbles labeled with the Bot's name and a status dot (the original's group chats + room-member turns, local edition). And a Bot can hand work to a peer mid-task: `bots_list` / `bot_message` delegate a self-contained subtask to another Bot, which runs as a full agent turn with the target's identity, knowledge and VM — the exchange is recorded in the target Bot's own conversation. Depth-capped at 2 so chains can't recurse; self-delegation refused.
+
+**Self-protection firewall** — the agent cannot modify its own code or security settings: writes and shell commands touching the installed app tree, the `.asar` bundle, or the security-gating config files (`settings.json`, `integrations.json`, `mcp.json`, `automations.json`) are denied **before** approval, and self-kill commands (`taskkill` Emberling) are refused. These denials cannot be overridden by approval mode or auto-review rules — mirroring the original's write-protection / workspace-boundary policy engine (`writeProtectionMapping`, `additionalReadonlyPaths`, `networkPolicyStrict`).
 
 **Voice mode** — 📞 in the header: **live streaming speech-to-text** (Web Speech API — keyless, no recording round-trip) with a Whisper-memo fallback, agent reply, spoken answer. **Teach mode** — 🎓 records your screen as timed frames the agent learns a task from.
 
@@ -266,6 +271,9 @@ Requires Node 18+ and npm. First run generates the icon set (`npm run icons` is 
 | Cloud box ("On its computer") | ✅ | ✅ (per-Dotling WSL VMs + SSH remote host) |
 | Browser control | ✅ (computer use) | ✅ (CDP over your real Chrome/Edge) |
 | Agent file store | ✅ (cloud) | ✅ (local, versioned per bot) |
+| Room orchestration (Bots process each message) | ✅ (cloud rooms) | ✅ (local rooms + member turns) |
+| Bot-to-bot delegation | ✅ | ✅ (`bot_message`, depth-capped) |
+| Agent self-protection firewall | ✅ (daemon policy engine) | ✅ (local guard: install tree, security configs, self-kill) |
 | Meetings (join/transcribe/summarize) | ✅ | — (planned) |
 | Payments / upgrades | ✅ | ✨ free ("Emberling Plus") |
 
@@ -299,10 +307,12 @@ Run `npm test` for the four CDP suites (launches their own app instance); the No
 | `electron/main.js` | Windows, tray, IPC, scheduler, usage, teach capture, integrations IPC |
 | `electron/preload.js` | contextBridge surface (`window.emberling`) |
 | `electron/agent.js` | Tool-calling turn loop (API + text-mode tool protocols) |
-| `electron/tools.js` | 37 tool defs + dispatch + approval gating + remote/sandbox routing |
+| `electron/tools.js` | 42 tool defs + dispatch + approval gating + remote/sandbox routing |
+| `electron/guard.js` | Self-protection firewall — install tree, security configs, self-kill denied |
 | `electron/sandbox.js` | Per-Dotling WSL Ubuntu VMs — isolated, approval-free execution |
 | `electron/browser.js` | CDP control of the installed Chrome/Edge |
 | `electron/agent-store.js` | Per-bot file store with version history |
+| `electron/screen-state.js` | Per-Dotling virtual screen state (VM activity feed) |
 | `electron/shell-runner.js` | Privileged shell execution (only spawn site) |
 | `electron/remote.js` | SSH remote execution — "On its computer" |
 | `electron/integrations/` | GitHub/GitLab/Bitbucket/Azure, Slack, Teams (Graph), iMessage, email (SMTP/IMAP), 1Password |
