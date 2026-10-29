@@ -12,9 +12,27 @@ function Orb() {
   const [dropping, setDropping] = useState(false);
   const [dragging, setDragging] = useState(false);
   const press = useRef({ active: false, moved: 0, lastX: 0, lastY: 0 });
+  const hoverTimer = useRef<number | null>(null);
+
+  const stopHover = () => {
+    if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+    window.emberling.orb.hover(false);
+  };
+
+  const onHoverStart = () => {
+    if (press.current.active) return;
+    // intent delay so a pass-over pointer doesn't flash the bubble
+    if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => {
+      hoverTimer.current = null;
+      if (!press.current.active) window.emberling.orb.hover(true);
+    }, 300);
+  };
 
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
+    stopHover();
     press.current = { active: true, moved: 0, lastX: e.screenX, lastY: e.screenY };
   };
 
@@ -68,6 +86,8 @@ function Orb() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onMouseEnter={onHoverStart}
+        onMouseLeave={stopHover}
         title="Emberling — click to open, drag to move, drop files to attach"
         style={{
           width: 58,

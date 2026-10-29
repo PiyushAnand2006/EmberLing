@@ -294,7 +294,10 @@ function toggleOrb() {
 ipcMain.on("orb:sync", (_e, enabled) => {
   if (!orbWindow) return;
   if (enabled) orbWindow.show();
-  else orbWindow.hide();
+  else {
+    orbWindow.hide();
+    previewWindow?.hide();
+  }
 });
 
 // custom pointer-drag of the desktop mark (the mark itself is the drag surface)
@@ -309,6 +312,92 @@ ipcMain.on("orb:save-position", () => {
   const [x, y] = orbWindow.getPosition();
   store.update("settings", (s) => ({ ...defaultSettings(), ...s, orbPosition: { x, y } }));
 });
+
+// Hover preview bubble — a separate click-through window shown above the mark
+// (the original's glass hover bubble) with the latest chat as context.
+let previewWindow = null;
+
+function latestConversationPreview() {
+  try {
+    const conversations = store.load("conversations", []);
+    const c = conversations[0];
+    if (!c) return null;
+    const last = (c.messages || []).filter((m) => m && m.content).slice(-1)[0];
+    return {
+      title: c.title || "New chat",
+      snippet: last ? String(last.content).replace(/\s+/g, " ").trim().slice(0, 140) : "No messages yet — say hi.",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createPreviewWindow() {
+  previewWindow = new BrowserWindow({
+    width: 320,
+    height: 128,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    focusable: false,
+    show: false,
+    icon: appIcon(),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  previewWindow.setIgnoreMouseEvents(true);
+  previewWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  previewWindow.setAlwaysOnTop(true, "screen-saver");
+  if (isDev()) {
+    previewWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}/preview.html`);
+  } else {
+    previewWindow.loadFile(path.join(rendererDir(), "preview.html"));
+  }
+  previewWindow.on("closed", () => {
+    previewWindow = null;
+  });
+}
+
+function showOrbPreview() {
+  if (!orbWindow) return;
+  if (!previewWindow) createPreviewWindow();
+  const b = orbWindow.getBounds();
+  const wa = require("electron").screen.getPrimaryDisplay().workArea;
+  const W = 320, H = 128;
+  let x = Math.round(b.x + b.width / 2 - W / 2);
+  x = Math.min(Math.max(x, wa.x + 8), wa.x + wa.width - W - 8);
+  let y = b.y - H - 10;
+  if (y < wa.y + 8) y = b.y + b.height + 10; // no room above the mark → below
+  previewWindow.setBounds({ x, y, width: W, height: H });
+  previewWindow.webContents.send("orb:preview-data", latestConversationPreview());
+  previewWindow.showInactive();
+}
+
+ipcMain.on("orb:hover", (_e, on) => {
+  if (!on) {
+    previewWindow?.hide();
+    return;
+  }
+  showOrbPreview();
+});
+
+// --orb-preview-test: flash the hover bubble once so visual checks can see it
+// without a real pointer hover.
+if (process.argv.includes("--orb-preview-test")) {
+  app.whenReady().then(() => {
+    setTimeout(() => {
+      showOrbPreview();
+      setTimeout(() => previewWindow?.hide(), 20000);
+    }, 2000);
+  });
+}
 
 function focusMain(hash) {
   if (!mainWindow) {

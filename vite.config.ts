@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         orb: resolve(__dirname, "orb.html"),
+        preview: resolve(__dirname, "preview.html"),
       },
     },
   },

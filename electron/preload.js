@@ -53,6 +53,8 @@ const api = {
     sync: (enabled) => ipcRenderer.send("orb:sync", enabled),
     moveBy: (dx, dy) => ipcRenderer.send("orb:move", { dx, dy }),
     savePosition: () => ipcRenderer.send("orb:save-position"),
+    hover: (on) => ipcRenderer.send("orb:hover", on),
+    onPreviewData: (cb) => ipcRenderer.on("orb:preview-data", (_e, d) => cb(d)),
   },
 
   mcp: {
