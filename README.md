@@ -89,14 +89,43 @@ Design tokens recovered by REA (exact values): chrome `#141414`, pane `#181818`,
 
 ## Installation
 
-### Option A — Desktop app (latest release: v0.75.12)
+### Option A — One command (PowerShell)
+
+**Install** (latest release, silent):
+
+```powershell
+irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1 | iex
+```
+
+**Update** (always fetches the latest release and upgrades in place):
+
+```powershell
+iwr https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/update.ps1 | iex
+```
+
+**Options** — pinned versions, portable build, interactive wizard:
+
+```powershell
+# a specific version
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Version 0.75.13
+
+# portable build (single exe into your Downloads folder, no install)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Portable
+
+# see the installer wizard instead of silent install
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -NoSilent
+```
+
+The installer only ever contacts `github.com` / `objects.githubusercontent.com` (checked in-script), downloads the **versioned** exe from the Releases page, and re-running it over an existing install upgrades in place — chats, bots, memories, keys and Dotling VMs are preserved. Installed apps also self-update (see below).
+
+### Option B — Manual download
 
 Grab a build from [**Releases**](https://github.com/PiyushAnand2006/EmberLing/releases):
 
 | File | What it is |
 |---|---|
-| `Emberling-Setup-0.75.12.exe` | NSIS installer (~105 MB) — desktop + start-menu shortcuts, uninstaller |
-| `Emberling-Portable-0.75.12.exe` | Single portable exe (~105 MB) — run from anywhere, installs nothing |
+| `Emberling-Setup-<version>.exe` | NSIS installer (~105 MB) — desktop + start-menu shortcuts, uninstaller |
+| `Emberling-Portable-<version>.exe` | Single portable exe (~105 MB) — run from anywhere, installs nothing |
 
 1. Download and run the setup (or the portable).
 2. Launch **Emberling**. It works immediately — the default provider (Pollinations) needs **no API key**.
