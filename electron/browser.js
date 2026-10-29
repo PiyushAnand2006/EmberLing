@@ -47,19 +47,19 @@ const LAUNCH_SCRIPTS = {
   chrome:
     "(Start-Process -FilePath 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--hide-crash-restore-bubble','--window-size=1280,900','about:blank' -PassThru).Id",
   chrome86:
     "(Start-Process -FilePath 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--hide-crash-restore-bubble','--window-size=1280,900','about:blank' -PassThru).Id",
   edge86:
     "(Start-Process -FilePath 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--hide-crash-restore-bubble','--window-size=1280,900','about:blank' -PassThru).Id",
   edge:
     "(Start-Process -FilePath 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' -ArgumentList '--remote-debugging-port=0','--user-data-dir=" +
     PROFILE_DIR +
-    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--window-size=1280,900','about:blank' -WindowStyle Hidden -PassThru).Id",
+    "','--no-first-run','--no-default-browser-check','--disable-session-crashed-bubble','--hide-crash-restore-bubble','--window-size=1280,900','about:blank' -PassThru).Id",
 };
 
 function findBrowser() {
@@ -253,6 +253,19 @@ async function ensureSession() {
   // it so the wait loop only ever sees the fresh browser's port.
   const portFile = path.join(PROFILE_DIR, "DevToolsActivePort");
   await fsp.unlink(portFile).catch(() => {});
+  // Chrome 87+ ignores --disable-session-crashed-bubble: after a forced kill
+  // the "Restore pages?" bubble shows over the agent's window. Clear the
+  // crash marker in the profile's Preferences before every launch.
+  const prefsFile = path.join(PROFILE_DIR, "Default", "Preferences");
+  try {
+    const prefs = JSON.parse(await fsp.readFile(prefsFile, "utf8"));
+    if (prefs.profile?.exit_type !== "Normal") {
+      prefs.profile = prefs.profile || {};
+      prefs.profile.exit_type = "Normal";
+      prefs.profile.exited_cleanly = true;
+      await fsp.writeFile(prefsFile, JSON.stringify(prefs));
+    }
+  } catch {}
   const launched = await runShellScript({ script: LAUNCH_SCRIPTS[browser.key] });
   const pidMatch = String(launched.stdout || "").trim().match(/\d+/);
   // wait for a page target, re-reading the (fresh) port file each iteration
