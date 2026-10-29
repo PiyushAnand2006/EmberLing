@@ -107,7 +107,7 @@ iwr https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/update.ps1 
 
 ```powershell
 # a specific version
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Version 0.75.14
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Version 0.75.15
 
 # portable build (single exe into your Downloads folder, no install)
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/PiyushAnand2006/EmberLing/main/install.ps1))) -Portable
@@ -161,6 +161,8 @@ npm start            # rebuild + launch
 ### Recent releases
 
 | Version | Highlights |
+|---|---|
+| **v0.75.15** | Composer pill polish - model/approval/mic on the right side, editor stretching from the + hub; docked at the bottom in all layouts |
 |---|---|
 | **v0.75.14** | Orchestration (Rooms: every member Bot processes each message; `bot_message` delegation, depth-capped), self-protection firewall (install tree / security configs / self-kill denied), one-command PowerShell install + update, WSL sandbox verified live on real distros, browser stop + restore-bubble fixes, pill composer + Composer actions menu, bot chats fronted by their Dotling face |
 | **v0.75.13** | Teams sign-in completes (consent-fallback client chain, token refresh, staged errors); automation completion/failure visibility (failure toasts, error entries, per-automation notify toggle) |
