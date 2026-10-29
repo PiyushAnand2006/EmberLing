@@ -244,16 +244,21 @@ async function probeImage(url) {
  * @param {string} prompt - image description
  */
 async function generatePhoto(prompt) {
-  const seedBytes = new Uint8Array(4);
-  crypto.getRandomValues(seedBytes);
-  const seed = new DataView(seedBytes.buffer).getUint32(0);
-  const url = new URL("https://image.pollinations.ai/prompt/" + encodeURIComponent(String(prompt)));
-  url.searchParams.set("width", "1024");
-  url.searchParams.set("height", "1024");
-  url.searchParams.set("seed", String(seed));
-  url.searchParams.set("nologo", "true");
-  await probeImage(url);
-  return { url: url.toString(), prompt: String(prompt) };
+  // image + text share Pollinations' one-request-per-IP Classic limit — take
+  // the same slot the chat streams use so the two can't collide
+  const { withKeylessSlot } = require("./providers");
+  return withKeylessSlot("pollinations", async () => {
+    const seedBytes = new Uint8Array(4);
+    crypto.getRandomValues(seedBytes);
+    const seed = new DataView(seedBytes.buffer).getUint32(0);
+    const url = new URL("https://image.pollinations.ai/prompt/" + encodeURIComponent(String(prompt)));
+    url.searchParams.set("width", "1024");
+    url.searchParams.set("height", "1024");
+    url.searchParams.set("seed", String(seed));
+    url.searchParams.set("nologo", "true");
+    await probeImage(url);
+    return { url: url.toString(), prompt: String(prompt) };
+  });
 }
 
 /**

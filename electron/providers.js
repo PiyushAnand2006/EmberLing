@@ -140,6 +140,7 @@ function activeConfig(settings) {
     providerId: pid,
     baseUrl: creds.baseUrl || provider.url,
     apiKey,
+    keyless: !!provider.keyless,
     model: creds.model || provider.models[0]?.id || "",
     fallbackModel: provider.models[0]?.id || "",
     supportsTools: provider.supportsTools !== false,
@@ -178,7 +179,32 @@ function sleepWithSignal(ms, signal) {
   });
 }
 
-async function streamChat({ config, messages, tools, signal, onDelta, onDone }) {
+// Keyless tiers (Pollinations Classic) answer ONE request at a time per IP —
+// chats, rooms, subagents and automations all stream through here and can
+// overlap, so every keyless provider serializes behind a process-wide slot.
+// The slot releases only when the stream fully unwinds (done, errored or
+// aborted), which also spaces out requests after a user hits Stop: the
+// provider keeps working on the aborted generation server-side for a while.
+const keylessSlots = new Map();
+async function withKeylessSlot(providerId, fn) {
+  const prev = keylessSlots.get(providerId) || Promise.resolve();
+  let release;
+  const gate = new Promise((r) => (release = r));
+  keylessSlots.set(providerId, prev.then(() => gate));
+  await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+async function streamChat(opts) {
+  const run = () => streamChatOnce(opts);
+  return opts.config.keyless ? withKeylessSlot(opts.config.providerId, run) : run();
+}
+
+async function streamChatOnce({ config, messages, tools, signal, onDelta, onDone }) {
   const body = {
     model: config.model,
     messages,
@@ -228,13 +254,14 @@ async function streamChat({ config, messages, tools, signal, onDelta, onDone }) 
     await sleepWithSignal((wait + 2) * 1000, signal);
     res = await doFetch();
   }
-  // "previous request is still running" (RATE_LIMITED): the prior connection
-  // hasn't fully unwound yet (edit-and-resend, concurrent chats) — brief
-  // backoff and retry before failing over
+  // "previous request is still running" (RATE_LIMITED): the prior generation
+  // hasn't fully unwound server-side yet (stop, edit-and-resend, overlapping
+  // chats) — Classic keeps working on it after our connection closes, so wait
+  // it out with a longer ladder before failing over
   if (res.status === 429) {
     const text = await res.text().catch(() => "");
     if (/RATE_LIMITED|still running|per IP/i.test(text)) {
-      for (const waitMs of [4000, 9000]) {
+      for (const waitMs of [5000, 15000, 30000]) {
         await sleepWithSignal(waitMs, signal);
         res = await doFetch();
         if (res.status !== 429) break;
@@ -392,4 +419,4 @@ async function transcribeWith(url, key, model, filePath, mimeType) {
   return json.text || "";
 }
 
-module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, transcribe, fetchModels, modelsUrl, safeJson };
+module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, safeJson };
