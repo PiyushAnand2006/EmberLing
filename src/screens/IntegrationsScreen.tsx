@@ -31,11 +31,16 @@ export function IntegrationsScreen() {
           <EmailCard />
           <OnePasswordCard />
           <IMessageCard />
+          <StubCard icon="📐" name="Linear" desc="Create and update issues from chat." why="Linear's connect flow needs their OAuth app's backend callback — unavailable to a local app." />
+          <StubCard icon="📹" name="Zoom" desc="Join calls and take notes for you." why="Zoom needs a Marketplace OAuth app with a cloud callback (plus the in-call bot SDK for meeting notes)." />
+          <StubCard icon="🔍" name="Google API Key" desc="Powered search and calendar access." why="Calendar needs a Google Cloud OAuth consent screen — a bare API key can't authorize user data." />
+          <StubCard icon="🏢" name="Entra ID" desc="Enterprise sign-in and directory tools." why="Needs a registered Azure app with a cloud-hosted redirect URI." />
+          <StubCard icon="🗂️" name="SharePoint" desc="Search and read SharePoint sites and documents." why="SharePoint access rides on Entra ID OAuth — same backend requirement." />
           <RemoteCard wide />
         </div>
 
         <div style={{ fontSize: 12, color: "var(--cursor-text-quaternary)", marginTop: 14 }}>
-          Linear, Zoom and Google connectors in the original require their vendor OAuth backends; their flows are represented as connect state and the agent can still reach public services through its web tools.
+          The “Vendor OAuth” cards are honest stubs — the original drives them through vendor-hosted OAuth backends that a local rebuild can't host. Everything else on this screen is a real, working connection.
         </div>
       </div>
     </div>
@@ -49,13 +54,13 @@ function useInteg(id: string): [any, (patch: any) => void] {
   return [value, set];
 }
 
-function CardShell({ icon, name, desc, connected, children, keyHint, wide }: { icon: string; name: string; desc: string; connected?: boolean; children?: React.ReactNode; keyHint?: string; wide?: boolean }) {
+function CardShell({ icon, name, desc, connected, children, keyHint, wide, stub }: { icon: string; name: string; desc: string; connected?: boolean; children?: React.ReactNode; keyHint?: string; wide?: boolean; stub?: boolean }) {
   return (
     <div className={`integ-card${connected ? " connected" : ""}`} style={wide ? { gridColumn: "1 / -1" } : undefined}>
       <div className="integ-head">
         <span className="integ-tile">{icon}</span>
         <strong>{name}</strong>
-        <span className={`badge ${connected ? "ok" : "neutral"}`}>{connected ? "Connected" : "Not connected"}</span>
+        <span className={`badge ${connected ? "ok" : stub ? "warn" : "neutral"}`}>{connected ? "Connected" : stub ? "Vendor OAuth" : "Not connected"}</span>
       </div>
       <div className="integ-desc">{desc}</div>
       {keyHint && (
@@ -71,7 +76,16 @@ function CardShell({ icon, name, desc, connected, children, keyHint, wide }: { i
   );
 }
 
-function RepoCard({ id, name, icon, desc, keyHint, orgField }: { id: string; name: string; icon: string; desc: string; keyHint: string; orgField?: boolean }) {  const { toast } = useApp();
+function StubCard({ icon, name, desc, why }: { icon: string; name: string; desc: string; why: string }) {
+  return (
+    <CardShell icon={icon} name={name} desc={desc} stub>
+      <div style={{ fontSize: 12, color: "var(--cursor-text-quaternary)" }}>{why}</div>
+    </CardShell>
+  );
+}
+
+function RepoCard({ id, name, icon, desc, keyHint, orgField }: { id: string; name: string; icon: string; desc: string; keyHint: string; orgField?: boolean }) {
+  const { toast } = useApp();
   const [cfg, set] = useInteg(id);
   const [token, setToken] = useState(cfg.apiToken || "");
   const [org, setOrg] = useState(cfg.org || "");
