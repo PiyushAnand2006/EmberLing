@@ -135,6 +135,21 @@ const TOOL_DEFS = [
   {
     type: "function",
     function: {
+      name: "ocr_image",
+      description:
+        "Read visible text from an image file (screenshots, photos of documents, error dialogs) using offline Windows OCR. Chain with screenshot tools: save/capture an image, pass its absolute path.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Absolute path to the image file (png/jpg/bmp)" },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "spawn_subagent",
       description:
         "Spawn a focused subagent (web + read-only tools) to research or verify something in the background and return its summary. Use for parallelizable research you don't need step-by-step visibility into.",
@@ -821,6 +836,10 @@ async function executeTool(call, ctx) {
         if (typeof ctx.takeScreenshot !== "function") return { ok: false, error: "screenshot unavailable" };
         return await ctx.takeScreenshot();
       }
+      case "ocr_image": {
+        const { ocrImage } = require("./ocr");
+        return await ocrImage(args.path);
+      }
       case "generate_video": {
         const { generateVideo } = require("./web-tools");
         return await generateVideo(args.prompt, Math.min(8, Math.max(3, Number(args.frames) || 5)));
@@ -1044,6 +1063,7 @@ const STATUS_BY_TOOL = {
   generate_video: "Generating a video",
   screenshot: "Taking a screenshot",
   screen_screenshot: "Taking a screenshot",
+  ocr_image: "Reading text from the image",
   spawn_subagent: "Working with a subagent",
   react_to_message: "Reacting",
   request_user_form: "Waiting for you",

@@ -404,6 +404,7 @@ const TOOL_LABELS: Record<string, string> = {
   generate_video: "Generate clips",
   screenshot: "Screenshots (app)",
   screen_screenshot: "Screenshots (screen)",
+  ocr_image: "Read text from images (OCR)",
   spawn_subagent: "Subagents",
   react_to_message: "React to messages",
   request_user_form: "Ask with forms",

@@ -501,6 +501,7 @@ function defaultSettings() {
     agentTools: [
       "run_command", "read_file", "write_file", "edit_file", "list_dir",
       "web_search", "web_fetch", "generate_photo", "generate_video", "screenshot",
+      "ocr_image",
       "screen_screenshot", "spawn_subagent", "react_to_message", "request_user_form",
       "send_email", "list_windows", "focus_window", "type_text", "save_memory",
       "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll",
@@ -789,6 +790,7 @@ const NEW_DEFAULT_TOOLS = [
   "browser_read", "browser_screenshot", "browser_close",
   "store_write", "store_read", "store_list", "store_search", "store_versions", "store_delete",
   "link_preview", "routine_list", "routine_add", "routine_remove",
+  "ocr_image",
 ];
 
 function migrateSettings(saved) {
