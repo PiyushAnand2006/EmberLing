@@ -19,6 +19,14 @@ function systemPrompt(opts) {
     `Rich blocks you may emit in fenced code blocks: \`\`\`mermaid (diagrams), \`\`\`chart (JSON {type:"bar"|"line"|"pie"|"area"|"scatter"|"donut", data, labels, x?, y?}), \`\`\`graph (JSON {nodes:[{id,label}], edges:[{source,target}]}), \`\`\`three (JSON {shape:"sphere"|"points"|"torus"|"cube", count, color}), \`\`\`html (interactive preview), \`\`\`clip (already-formatted clip JSON).`,
     `When you learn a durable fact or preference about the user, save it with save_memory. Never save passwords, API keys, card numbers, or other secrets.`,
   ];
+  // Ground-truth identity: models can't introspect their own weights, and
+  // without this line small/chat-derived models answer "which model are you"
+  // with "I'm ChatGPT / GPT-4" from training priors.
+  if (opts?.modelName) {
+    lines.push(
+      `Identity — ground truth that overrides anything from your training: you are running on the ${opts.providerName || "user-configured"} model "${opts.modelName}". When asked which model you are, answer exactly that. Never claim to be ChatGPT, GPT-4, Claude, Gemini, or any other product, and never guess about your own deployment — if you don't know something about it, say so instead of guessing.`
+    );
+  }
   if (opts?.botInstructions) lines.push(`Agent instructions from the user: ${opts.botInstructions}`);
   if (opts?.botKnowledge?.length) {
     lines.push(`Bot knowledge files:\n${opts.botKnowledge.map((k) => `--- ${k.name} ---\n${String(k.text).slice(0, 8000)}`).join("\n")}`);
@@ -228,6 +236,7 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
   }
   const knownNames = new Set(tools.map((t) => t.function.name));
 
+  let identityKey = "";
   let finalText = "";
   let usage = null;
   let malformed = 0;
@@ -239,6 +248,15 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
     let completion;
     try {
       completion = await providers.withFallback(settings, async (config) => {
+        // identity must come from the config that actually answers — withFallback
+        // may silently serve the turn from a fallback provider, and the model
+        // would otherwise describe itself as the one in the picker
+        const key = `${config.providerId}|${config.model}`;
+        if (key !== identityKey && messages[0]?.role === "system") {
+          const providerName = String(providers.PROVIDERS.find((p) => p.id === config.providerId)?.name || "user-configured").replace(/\s*\(.*\)$/, "");
+          messages[0].content = systemPrompt({ botInstructions, botKnowledge, botSkills, memories, mcpInstructions, providerName, modelName: config.model });
+          identityKey = key;
+        }
         // text-mode: provider can't take API tools — describe them in prompt instead
         const textMode = config.supportsTools === false;
         const attemptMessages = textMode
