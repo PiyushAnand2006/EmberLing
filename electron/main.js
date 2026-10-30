@@ -251,6 +251,17 @@ function createOrbWindow() {
   });
 }
 
+// headless writes (automation runs, trigger bookkeeping) change the store
+// behind the renderer's back — push the collections so it merges them instead
+// of clobbering them on its next persist
+function pushStoreToRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("store:push", {
+    conversations: store.load("conversations", []),
+    automations: store.load("automations", []),
+  });
+}
+
 function createTray() {
   const icon = appIcon() ? appIcon().resize({ width: 32, height: 32 }) : nativeImage.createFromDataURL(ORB_ICON_DATAURL);
   tray = new Tray(icon);
@@ -275,7 +286,10 @@ function createTray() {
   };
   tray.on("click", () => focusMain());
   rebuild();
-  store.onRebuild = rebuild;
+  store.onRebuild = () => {
+    rebuild();
+    pushStoreToRenderer();
+  };
   return rebuild;
 }
 
@@ -1345,6 +1359,7 @@ async function runDueAutomations() {
     const due = automationDue(a, now);
     if (!due) continue;
     store.update("automations", (list) => list.map((x) => (x.id === a.id ? { ...x, lastRun: now } : x)));
+    store.onRebuild?.();
     await runAutomationTurn(a);
   }
 }
@@ -1418,6 +1433,7 @@ async function checkEventTrigger(a, force = false) {
 
 function saveTriggerState(a, state) {
   store.update("automations", (list) => list.map((x) => (x.id === a.id ? { ...x, triggerState: state } : x)));
+  store.onRebuild?.();
 }
 
 async function fireTriggeredAutomation(a, eventSummary) {

@@ -14,6 +14,13 @@ const api = {
   store: {
     get: (collection) => ipcRenderer.invoke(`store:get:${collection}`),
     set: (collection, value) => ipcRenderer.invoke(`store:set:${collection}`, value),
+    // main pushes collections it wrote behind our back (headless automation
+    // runs, trigger bookkeeping) so the renderer can merge instead of clobber
+    onPush: (cb) => {
+      const listener = (_e, data) => cb(data);
+      ipcRenderer.on("store:push", listener);
+      return () => ipcRenderer.removeListener("store:push", listener);
+    },
   },
 
   providers: {

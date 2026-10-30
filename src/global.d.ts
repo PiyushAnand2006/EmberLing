@@ -8,6 +8,8 @@ declare global {
     store: {
       get(collection: string): Promise<any>;
       set(collection: string, value: any): Promise<boolean>;
+      /** main pushes store collections after headless writes (automation runs) */
+      onPush(cb: (data: { conversations?: any[]; automations?: any[] }) => void): () => void;
     };
     providers: {
       list(): Promise<any[]>;

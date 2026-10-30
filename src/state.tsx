@@ -62,6 +62,23 @@ const FALLBACK_SETTINGS: Settings = {
   voice: { input: "default", rate: 1 },
 };
 
+// Merge collections the main process pushed (headless automation runs) into
+// the renderer's copy: per-id, the side with the newer timestamp wins. Ties
+// keep the pushed version for conversations (the run is the newer data) and
+// the local one for automations (a concurrent edit shouldn't be reverted).
+function mergePushed<T extends { id: string }>(local: T[], pushed: T[], tsKey: keyof T): T[] {
+  const byId = new Map(local.map((x) => [x.id, x]));
+  for (const inc of pushed) {
+    const cur = byId.get(inc.id);
+    const incTs = Number(inc[tsKey]) || 0;
+    const curTs = Number(cur?.[tsKey]) || 0;
+    if (!cur || incTs > curTs || (incTs === curTs && tsKey === "updatedAt")) byId.set(inc.id, inc);
+  }
+  const merged = Array.from(byId.values());
+  merged.sort((a, b) => (Number(b[tsKey]) || 0) - (Number(a[tsKey]) || 0));
+  return merged;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversationsRaw] = useState<Conversation[]>([]);
   const [bots, setBotsRaw] = useState<Bot[]>([]);
@@ -117,6 +134,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loaded) window.emberling.store.set("integrations", integrations);
   }, [integrations, loaded]);
+
+  // headless main-process writes (automation runs, trigger bookkeeping) change
+  // the store behind our back — merge the pushes, or the next persist here
+  // would erase them (runs, unread badges, lastRun, trigger cursors)
+  useEffect(() => {
+    if (!loaded) return;
+    return window.emberling.store.onPush((data) => {
+      const convs = data?.conversations;
+      const autos = data?.automations;
+      if (Array.isArray(convs)) setConversationsRaw((list) => mergePushed(list, convs, "updatedAt"));
+      if (Array.isArray(autos)) setAutomationsRaw((list) => mergePushed(list, autos, "lastRun"));
+    });
+  }, [loaded]);
 
   const toast = useCallback((text: string) => {
     const t = new Uint32Array(1);
