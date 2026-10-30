@@ -117,6 +117,7 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow = null;
 let orbWindow = null;
 let tray = null;
+let trayRebuild = null; // tray-menu-only refresh (renderer writes use this)
 let updateApi = null; // set by setupAutoUpdate when packaged
 const activeTurns = new Map(); // conversationId -> AbortController
 const pendingApprovals = new Map(); // approvalId -> {resolve, request}
@@ -286,6 +287,7 @@ function createTray() {
   };
   tray.on("click", () => focusMain());
   rebuild();
+  trayRebuild = rebuild;
   store.onRebuild = () => {
     rebuild();
     pushStoreToRenderer();
@@ -502,7 +504,9 @@ for (const col of COLLECTIONS) {
   });
   ipcMain.handle(`store:set:${col}`, (_e, value) => {
     store.update(col, () => (col === "settings" || col === "integrations" ? secureStore.encryptDeep(value) : value));
-    store.onRebuild?.();
+    // renderer-initiated write: refresh the tray menu only — pushing the same
+    // data back would echo (renderer merges → persists → pushes → …)
+    trayRebuild?.();
     return true;
   });
 }

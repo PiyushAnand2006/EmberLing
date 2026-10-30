@@ -63,17 +63,21 @@ const FALLBACK_SETTINGS: Settings = {
 };
 
 // Merge collections the main process pushed (headless automation runs) into
-// the renderer's copy: per-id, the side with the newer timestamp wins. Ties
-// keep the pushed version for conversations (the run is the newer data) and
-// the local one for automations (a concurrent edit shouldn't be reverted).
+// the renderer's copy: per-id, only a STRICTLY newer timestamp wins (equal
+// timestamps mean identical content — preferring pushed there would make the
+// echo of our own persist loop forever). Returns the SAME array reference
+// when nothing changed, so echoes never re-render or re-persist.
 function mergePushed<T extends { id: string }>(local: T[], pushed: T[], tsKey: keyof T): T[] {
   const byId = new Map(local.map((x) => [x.id, x]));
+  let changed = false;
   for (const inc of pushed) {
     const cur = byId.get(inc.id);
-    const incTs = Number(inc[tsKey]) || 0;
-    const curTs = Number(cur?.[tsKey]) || 0;
-    if (!cur || incTs > curTs || (incTs === curTs && tsKey === "updatedAt")) byId.set(inc.id, inc);
+    if (!cur || (Number(inc[tsKey]) || 0) > (Number(cur[tsKey]) || 0)) {
+      byId.set(inc.id, inc);
+      changed = true;
+    }
   }
+  if (!changed) return local;
   const merged = Array.from(byId.values());
   merged.sort((a, b) => (Number(b[tsKey]) || 0) - (Number(a[tsKey]) || 0));
   return merged;
