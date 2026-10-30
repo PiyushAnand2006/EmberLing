@@ -501,7 +501,7 @@ function defaultSettings() {
     agentTools: [
       "run_command", "read_file", "write_file", "edit_file", "list_dir",
       "web_search", "web_fetch", "generate_photo", "generate_video", "screenshot",
-      "ocr_image",
+      "ocr_image", "window_screenshot",
       "screen_screenshot", "spawn_subagent", "react_to_message", "request_user_form",
       "send_email", "list_windows", "focus_window", "type_text", "save_memory",
       "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll",
@@ -790,7 +790,7 @@ const NEW_DEFAULT_TOOLS = [
   "browser_read", "browser_screenshot", "browser_close",
   "store_write", "store_read", "store_list", "store_search", "store_versions", "store_delete",
   "link_preview", "routine_list", "routine_add", "routine_remove",
-  "ocr_image",
+  "ocr_image", "window_screenshot",
 ];
 
 function migrateSettings(saved) {
@@ -851,6 +851,52 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
     return { ok: true, url: `emberling-media://${id}` };
   };
 
+  // Window-scoped capture — the original's sand-window-capture: grab one
+  // window by (partial) title even when it's only partially visible. The
+  // desktopCapturer (WGC) path is fast but flakes out on some windows, so
+  // fall back to Win32 PrintWindow via PowerShell.
+  const takeWindowScreenshot = async (title) => {
+    const needle = String(title || "").trim().toLowerCase();
+    if (!needle) return { ok: false, error: "window_screenshot needs a 'title' to match — use list_windows first" };
+    let wgcError = null;
+    let wgcNames = "";
+    let captured = null;
+    try {
+      const { desktopCapturer } = require("electron");
+      const sources = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 1600, height: 900 } });
+      wgcNames = sources.map((s) => s.name).filter(Boolean).slice(0, 8).join(", ");
+      const match = sources.find((s) => (s.name || "").toLowerCase().includes(needle));
+      if (match && !match.thumbnail.isEmpty()) {
+        const id = `${crypto.randomUUID()}.png`;
+        await fsp.writeFile(path.join(mediaDir(), id), match.thumbnail.toPNG());
+        captured = { ok: true, url: `emberling-media://${id}`, window: match.name };
+      }
+    } catch (err) {
+      wgcError = err;
+    }
+    if (captured) return captured;
+    // WGC missed (flakes out on some windows/machines and can even enumerate
+    // without them) — always give Win32 PrintWindow a chance before failing
+    const outPath = path.join(mediaDir(), `${crypto.randomUUID()}.png`);
+    try {
+      const stdout = await new Promise((resolve, reject) => {
+        const { execFile } = require("node:child_process");
+        execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(__dirname, "window-capture.ps1"), String(title), outPath], { timeout: 30_000, windowsHide: true }, (err2, stdout2, stderr2) => {
+          if (err2 && !stdout2) return reject(new Error((stderr2 || err2.message).slice(0, 200)));
+          resolve(String(stdout2 || ""));
+        });
+      });
+      if (stdout.includes("__NOWINDOW__")) {
+        return { ok: false, error: `no window matching "${title}"${wgcNames ? ` — WGC saw: ${wgcNames}` : ""}` };
+      }
+      const st = await fsp.stat(outPath).catch(() => null);
+      if (!st || !st.size) throw new Error(wgcError ? `capture failed: ${String(wgcError.message).slice(0, 120)}` : "capture produced no image");
+      return { ok: true, url: `emberling-media://${path.basename(outPath)}`, note: "captured via PrintWindow fallback" };
+    } catch (err) {
+      return { ok: false, error: `window capture failed: ${String(err?.message || err).slice(0, 160)}` };
+    }
+  };
+
   // browser screenshots land in the same media store as app screenshots
   const saveBrowserShot = async (pngBuffer) => {
     const id = `${crypto.randomUUID()}.png`;
@@ -908,6 +954,7 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
     return {
       takeScreenshot,
       takeScreenScreenshot,
+      takeWindowScreenshot,
       saveMemory,
       spawnSubagent,
       requestForm,

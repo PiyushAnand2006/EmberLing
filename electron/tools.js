@@ -281,6 +281,21 @@ const TOOL_DEFS = [
   {
     type: "function",
     function: {
+      name: "window_screenshot",
+      description:
+        "Capture one specific window by (partial, case-insensitive) title — even when it's only partially covered by other windows — and return a emberling-media:// URL. Use list_windows to find the title first.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Part of the window title to match" },
+        },
+        required: ["title"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "save_memory",
       description:
         "Save a durable fact/preference about the user to Memories (followed in all future chats). Never save passwords, API keys or secrets.",
@@ -899,6 +914,10 @@ async function executeTool(call, ctx) {
         if (typeof ctx.takeScreenScreenshot !== "function") return { ok: false, error: "screen capture unavailable" };
         return await ctx.takeScreenScreenshot();
       }
+      case "window_screenshot": {
+        if (typeof ctx.takeWindowScreenshot !== "function") return { ok: false, error: "window capture unavailable" };
+        return await ctx.takeWindowScreenshot(args.title);
+      }
       case "browser_open":
         return await browserCtl.open(args.url, signal);
       case "browser_snapshot":
@@ -1063,6 +1082,7 @@ const STATUS_BY_TOOL = {
   generate_video: "Generating a video",
   screenshot: "Taking a screenshot",
   screen_screenshot: "Taking a screenshot",
+  window_screenshot: "Capturing a window",
   ocr_image: "Reading text from the image",
   spawn_subagent: "Working with a subagent",
   react_to_message: "Reacting",
