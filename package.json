@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "icons": "electron scripts/make-icons.cjs",
     "test": "node scripts/launch-and-test.mjs && node scripts/real-click-test.mjs && node scripts/menu-items-test.mjs",
+    "test:suites": "node scripts/test-suites.mjs",
     "dist": "npm run build && electron-builder --win nsis portable",
     "pack": "npm run build && electron-builder --dir"
   },
