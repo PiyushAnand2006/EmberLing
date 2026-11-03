@@ -1,3 +1,4 @@
+
 # EmberLing
 
 ![EmberLing](assets/brand/app-icon.svg)
@@ -18,9 +19,7 @@
 
 No sound, no narration — it types, builds, asks before it acts and then repeats on schedule, all by itself. Turn the volume up; there's nothing to hear.
 
-![Emberling in 22 seconds — a silent demo: a keyless chat, a private Linux VM, real tools, an approval click, and an automation that runs every morning](docs/video/brag.mp4)
-
----
+https://github.com/user-attachments/assets/9eb6c3ff-79d5-4489-9b2c-59b6ccafb978
 
 ## Screenshots
 
