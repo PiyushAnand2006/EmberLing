@@ -27,7 +27,7 @@ function DocxView({ att }: { att: Attachment }) {
   }, [att.id]);
   if (error) return <FileFallback att={att} note={error} />;
   return (
-    <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 14, margin: "4px 0", maxWidth: 560 }}>
+    <div className="photo-card" style={{ padding: 14, margin: "4px 0", maxWidth: 560 }}>
       <div style={{ fontSize: 11, color: "var(--cursor-text-tertiary)", marginBottom: 6 }}>📄 {att.name}</div>
       {html ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} /> : <div className="status-pill">Opening document…</div>}
     </div>
@@ -56,7 +56,7 @@ function XlsxView({ att }: { att: Attachment }) {
   }, [att.id]);
   if (error) return <FileFallback att={att} note={error} />;
   return (
-    <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 14, margin: "4px 0", maxWidth: 620, overflowX: "auto" }}>
+    <div className="photo-card" style={{ padding: 14, margin: "4px 0", maxWidth: 620, overflowX: "auto" }}>
       <div style={{ fontSize: 11, color: "var(--cursor-text-tertiary)", marginBottom: 6 }}>📊 {att.name}</div>
       {html ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} /> : <div className="status-pill">Opening spreadsheet…</div>}
     </div>

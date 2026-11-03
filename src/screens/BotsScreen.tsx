@@ -176,7 +176,7 @@ function BotEditor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
               <button
                 key={c}
                 onClick={() => setDraft({ ...draft, color: c })}
-                style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color.toLowerCase() === c ? "2px solid #fff" : "1px solid var(--cursor-stroke-tertiary)" }}
+                style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color.toLowerCase() === c ? "2px solid var(--cursor-text-primary)" : "1px solid var(--cursor-stroke-tertiary)" }}
               />
             ))}
             <input

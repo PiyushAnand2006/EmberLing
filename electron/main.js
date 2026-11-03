@@ -2,7 +2,7 @@
 // Mirrors the original's process structure: frameless main chat window,
 // tray, desktop-mount orb, agent execution in main, JSON local stores.
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, Notification, dialog, nativeImage, net, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, Notification, dialog, nativeImage, nativeTheme, net, shell } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
@@ -174,6 +174,21 @@ function loadRenderer(win, hash) {
   }
 }
 
+/* ---------------- Appearance theme (light | dark | system) ---------------- */
+const THEME_MODES = ["light", "dark", "system"];
+function validTheme(mode) {
+  return THEME_MODES.includes(mode) ? mode : "dark";
+}
+// native window background so light-mode users don't flash dark before the
+// renderer paints; must track nativeTheme, not a constant
+function winBackground() {
+  return nativeTheme.shouldUseDarkColors ? "#141414" : "#f7f7f6";
+}
+nativeTheme.on("updated", () => {
+  const bg = winBackground();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(bg);
+});
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -181,7 +196,7 @@ function createMainWindow() {
     minWidth: 640,
     minHeight: 480,
     frame: false,
-    backgroundColor: "#141414",
+    backgroundColor: winBackground(),
     show: false,
     icon: appIcon(),
     webPreferences: {
@@ -430,6 +445,10 @@ function bootstrap() {
   app.on("second-instance", () => focusMain());
 
   app.whenReady().then(() => {
+    // seed the appearance mode from stored settings before any window exists —
+    // nativeTheme drives prefers-color-scheme in every renderer and the window
+    // backgroundColor, so a light-mode user doesn't flash dark at startup
+    nativeTheme.themeSource = validTheme(loadSettings().theme);
     registerMediaProtocol();
     createMainWindow();
     createOrbWindow();
@@ -511,6 +530,12 @@ for (const col of COLLECTIONS) {
   });
 }
 
+/* ---------------- IPC: appearance theme ---------------- */
+ipcMain.handle("theme:set", (_e, mode) => {
+  nativeTheme.themeSource = validTheme(mode);
+  return nativeTheme.shouldUseDarkColors;
+});
+
 function defaultSettings() {
   return {
     activeProvider: "pollinations",
@@ -529,6 +554,7 @@ function defaultSettings() {
     ],
     autoReviewRules: [],
     bubbleColor: "default",
+    theme: "dark", // light | dark | system
     notifications: true,
     sounds: true,
     showOrb: true,
@@ -989,7 +1015,22 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
       saveBrowserShot,
       resolveAutoReview,
       selfGuard: (toolName, toolArgs) => selfGuard.check(toolName, toolArgs),
-      screenState: (entry) => require("./screen-state").recordScreenState(path.join(app.getPath("userData"), "agent-store"), memberBotId, entry),
+      // per-Dotling virtual screen: text record of each action + live browser
+      // frames (see recordBotScreen in tools.js)
+      screenState: (entry) => require("./screen-state").recordScreenActivity(path.join(app.getPath("userData"), "agent-store"), memberBotId, entry),
+      screenFrame: async (pngBase64) => {
+        try {
+          const { framePath } = require("./screen-state");
+          const target = framePath(path.join(app.getPath("userData"), "agent-store"), memberBotId);
+          const tmp = `${target}.tmp`;
+          await fsp.mkdir(path.dirname(target), { recursive: true });
+          await fsp.writeFile(tmp, Buffer.from(String(pngBase64 || ""), "base64"));
+          await fsp.rename(tmp, target); // atomic — the renderer never reads a half-written PNG
+          return { ts: Date.now() };
+        } catch {
+          return null;
+        }
+      },
       allAutomations: store.load("automations", []),
       allBots: bots,
       saveAutomation: (a) => {
@@ -1341,6 +1382,18 @@ ipcMain.handle("bots:screen", async (_e, botId) => {
       nextJoin: a.enabled && a.schedule?.type !== "minutes" && a.schedule?.time ? nextJoinText(a.schedule) : null,
     })),
   };
+});
+
+// live browser frame for the screen panel — bots:screen carries frameTs and
+// the panel refetches this only when the ts changes
+ipcMain.handle("bots:frame", async (_e, botId) => {
+  try {
+    const { framePath } = require("./screen-state");
+    const buf = await fsp.readFile(framePath(path.join(app.getPath("userData"), "agent-store"), botId || ""));
+    return { dataUrl: `data:image/png;base64,${buf.toString("base64")}` };
+  } catch {
+    return { dataUrl: null };
+  }
 });
 
 function nextJoinText(schedule) {
@@ -1710,7 +1763,7 @@ ipcMain.on("canvas:open", (_e, html) => {
   const win = new BrowserWindow({
     width: 980,
     height: 720,
-    backgroundColor: "#141414",
+    backgroundColor: winBackground(),
     autoHideMenuBar: true,
     title: "Emberling Canvas",
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -1809,7 +1862,7 @@ ipcMain.handle("files:openViewer", (_e, filePath) => {
   const win = new BrowserWindow({
     width: 900,
     height: 700,
-    backgroundColor: "#141414",
+    backgroundColor: winBackground(),
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });

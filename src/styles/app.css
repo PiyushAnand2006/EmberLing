@@ -24,8 +24,8 @@ button:disabled { cursor: default; opacity: 0.5; }
 input, textarea, select { font: inherit; color: inherit; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar-thumb { background: var(--fill-scrollbar); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fill-scrollbar-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 .icon-btn {
@@ -82,7 +82,7 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--cursor-text-secondary);
 }
 .window-controls button:hover { background: var(--cursor-bg-hover); color: var(--cursor-text-primary); }
-.window-controls .wc-close:hover { background: #e34671; color: #fff; }
+.window-controls .wc-close:hover { background: var(--cursor-danger); color: var(--sand-text-on-primary); }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
@@ -215,7 +215,7 @@ input, textarea, select { font: inherit; color: inherit; }
   min-width: 18px; height: 18px;
   border-radius: 9px;
   background: var(--cursor-brand);
-  color: #fff;
+  color: var(--sand-text-on-primary);
   font-size: 10px; font-weight: 700;
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 5px;
@@ -332,7 +332,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .bubble.pending { opacity: 0.75; }
 .bubble.error {
   background: var(--cursor-bg-danger-secondary);
-  color: #ffb1c6;
+  color: var(--text-danger-soft);
 }
 
 .msg-actions {
@@ -417,7 +417,7 @@ input, textarea, select { font: inherit; color: inherit; }
   margin: 8px 0 0;
   padding: 8px;
   border-radius: 6px;
-  background: rgba(0,0,0,0.35);
+  background: var(--fill-code-block);
   font-family: var(--cursor-font-family-mono);
   font-size: 11px;
   white-space: pre-wrap;
@@ -446,7 +446,7 @@ input, textarea, select { font: inherit; color: inherit; }
   margin: 8px 0;
   padding: 8px 10px;
   border-radius: var(--cursor-radius-md);
-  background: rgba(0,0,0,0.4);
+  background: var(--fill-code-block);
   font-family: var(--cursor-font-family-mono);
   font-size: 11px;
   white-space: pre-wrap;
@@ -470,11 +470,11 @@ input, textarea, select { font: inherit; color: inherit; }
 .btn.primary {
   background: var(--cursor-brand);
   border-color: transparent;
-  color: #fff;
+  color: var(--sand-text-on-primary);
   font-weight: 600;
 }
 .btn.primary:hover { background: #ff6a26; }
-.btn.danger { background: var(--cursor-danger); border-color: transparent; color: #fff; }
+.btn.danger { background: var(--cursor-danger); border-color: transparent; color: var(--sand-text-on-primary); }
 .btn.subtle { background: transparent; border-color: transparent; color: var(--cursor-text-secondary); }
 .btn.subtle:hover { background: var(--cursor-bg-hover); color: var(--cursor-text-primary); }
 
@@ -543,7 +543,7 @@ input, textarea, select { font: inherit; color: inherit; }
   transition: border-color 0.12s ease;
   padding: 8px 12px;
 }
-.composer:focus-within { border-color: rgba(255,255,255,0.2); }
+.composer:focus-within { border-color: var(--cursor-stroke-primary); }
 .composer > .tiptap { flex: 1; min-width: 0; }
 /* EditorContent wraps the ProseMirror node in a plain div — stretch that
    wrapper so the chips + mic pin to the pill's right edge */
@@ -584,13 +584,13 @@ input, textarea, select { font: inherit; color: inherit; }
 .ProseMirror.composer-input p { margin: 6px 0; }
 .ProseMirror.composer-input ul, .ProseMirror.composer-input ol { margin: 4px 0; padding-left: 22px; }
 .ProseMirror.composer-input pre {
-  background: rgba(0,0,0,0.42);
+  background: var(--fill-code-block);
   border-radius: var(--cursor-radius-lg);
   padding: 8px 10px;
   font-family: var(--cursor-font-family-mono);
   font-size: 12px;
 }
-.ProseMirror.composer-input code { font-family: var(--cursor-font-family-mono); background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; }
+.ProseMirror.composer-input code { font-family: var(--cursor-font-family-mono); background: var(--cursor-bg-tertiary); border-radius: 4px; padding: 1px 4px; }
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -617,18 +617,39 @@ input, textarea, select { font: inherit; color: inherit; }
 .bot-screen-surface {
   height: 130px;
   border-radius: 10px;
-  background: #0d0d0d;
+  background: var(--fill-bot-surface);
   border: 1px solid var(--cursor-stroke-tertiary);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
 .bot-screen-surface.acting { border-color: rgba(89,156,231,0.45); }
+.bot-screen-frame-wrap { position: relative; width: 100%; height: 100%; }
+.bot-screen-frame {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  display: block;
+}
+.bot-screen-live-badge {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(227, 70, 113, 0.92);
+  color: var(--sand-text-on-primary);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+.bot-screen-cmd-below { margin-top: 6px; }
 .bot-screen-idle { color: var(--cursor-text-quaternary); }
 .bot-screen-live { padding: 10px 12px; width: 100%; }
 .bot-screen-status { font-size: 11px; color: var(--cursor-accent); margin-bottom: 6px; }
 .bot-screen-cmd {
   display: block; font-family: var(--cursor-font-family-mono); font-size: 10.5px;
-  color: var(--cursor-text-primary); background: rgba(0,0,0,0.5);
+  color: var(--cursor-text-primary); background: var(--fill-code-block);
   border-radius: 5px; padding: 5px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .bot-screen-out {
@@ -672,7 +693,7 @@ input, textarea, select { font: inherit; color: inherit; }
   flex: none;
 }
 .composer-round:hover { background: var(--cursor-bg-quaternary); }
-.composer-round.recording { background: var(--cursor-danger); color: #fff; animation: pulse 1.2s infinite; }
+.composer-round.recording { background: var(--cursor-danger); color: var(--sand-text-on-primary); animation: pulse 1.2s infinite; }
 .chip-btn {
   display: inline-flex;
   align-items: center;
@@ -692,12 +713,12 @@ input, textarea, select { font: inherit; color: inherit; }
   width: 34px; height: 34px;
   border-radius: 50%;
   background: var(--cursor-brand);
-  color: #fff;
+  color: var(--sand-text-on-primary);
   display: inline-flex; align-items: center; justify-content: center;
   flex: none;
 }
 .send-btn:disabled { background: var(--cursor-bg-tertiary); color: var(--cursor-text-quaternary); }
-.send-btn.stop { background: var(--cursor-text-primary); color: #141414; }
+.send-btn.stop { background: var(--cursor-text-primary); color: var(--cursor-chrome); }
 .send-btn.recording { background: var(--cursor-danger); animation: pulse 1.2s infinite; }
 
 .attachments-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 14px; }
@@ -734,12 +755,12 @@ input, textarea, select { font: inherit; color: inherit; }
 .md code {
   font-family: var(--cursor-font-family-mono);
   font-size: 0.86em;
-  background: rgba(255,255,255,0.08);
+  background: var(--cursor-bg-tertiary);
   padding: 1.5px 5px;
   border-radius: 4px;
 }
 .md pre {
-  background: rgba(0,0,0,0.42);
+  background: var(--fill-code-block);
   border: 1px solid var(--cursor-stroke-quaternary);
   border-radius: var(--cursor-radius-lg);
   padding: 10px 12px;
@@ -759,7 +780,7 @@ input, textarea, select { font: inherit; color: inherit; }
   top: 6px; right: 6px;
   width: 22px; height: 22px;
   border-radius: 5px;
-  background: rgba(255,255,255,0.08);
+  background: var(--cursor-bg-tertiary);
   color: var(--cursor-text-secondary);
   display: inline-flex; align-items: center; justify-content: center;
   opacity: 0;
@@ -773,7 +794,7 @@ input, textarea, select { font: inherit; color: inherit; }
   gap: 10px;
   padding: 10px 12px;
   border-radius: var(--cursor-radius-xl);
-  background: rgba(0,0,0,0.3);
+  background: var(--fill-photo-card);
   border: 1px solid var(--cursor-stroke-quaternary);
   margin: 4px 0;
   min-width: 200px;
@@ -788,6 +809,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .file-card .file-name { font-size: 13px; font-weight: 500; word-break: break-all; }
 .file-card .file-meta { font-size: 11px; color: var(--cursor-text-tertiary); }
 
+.photo-card {
+  background: var(--fill-photo-card);
+  border-radius: var(--cursor-radius-xl);
+}
 .photo-card img, .photo-card canvas {
   max-width: min(420px, 100%);
   border-radius: var(--cursor-radius-lg);
@@ -894,12 +919,9 @@ input, textarea, select { font: inherit; color: inherit; }
   outline: none;
   min-width: 220px;
 }
-.text-input:focus { border-color: rgba(255,255,255,0.22); }
+.text-input:focus { border-color: var(--cursor-stroke-primary); }
 select.text-input {
   min-width: 160px;
-  /* Chromium renders the native dropdown popup in light scheme unless the
-     select element itself carries color-scheme — keep popups dark */
-  color-scheme: dark;
 }
 select.text-input option {
   background: var(--cursor-pane);
@@ -1001,7 +1023,7 @@ select.text-input optgroup option {
   font-weight: 600;
   letter-spacing: 0.3px;
 }
-.badge.ok { background: rgba(63,162,102,0.18); color: #6fd598; }
+.badge.ok { background: rgba(63,162,102,0.18); color: var(--text-badge-ok); }
 .badge.warn { background: rgba(241,180,103,0.16); color: var(--cursor-yellow); }
 .badge.neutral { background: var(--cursor-bg-tertiary); color: var(--cursor-text-tertiary); }
 
@@ -1063,7 +1085,7 @@ select.text-input optgroup option {
   align-items: center;
 }
 .toast {
-  background: #242424;
+  background: var(--fill-toast);
   border: 1px solid var(--cursor-stroke-tertiary);
   color: var(--cursor-text-primary);
   padding: 9px 16px;
@@ -1081,7 +1103,7 @@ select.text-input optgroup option {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #242424;
+  background: var(--fill-toast);
   border: 1px solid var(--cursor-accent);
   color: var(--cursor-text-primary);
   padding: 10px 14px;
@@ -1099,7 +1121,7 @@ select.text-input optgroup option {
   max-width: 340px;
   max-height: 62vh;
   overflow-y: auto;
-  background: #202020;
+  background: var(--fill-menu);
   border: 1px solid var(--cursor-stroke-tertiary);
   border-radius: var(--cursor-radius-lg);
   box-shadow: var(--shadow-pop);

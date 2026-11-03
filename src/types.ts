@@ -146,6 +146,8 @@ export interface Settings {
   approvalMode: "ask" | "askRisky" | "auto";
   agentTools: string[];
   bubbleColor: string;
+  /** Appearance mode: explicit light/dark, or follow the OS. */
+  theme?: "light" | "dark" | "system";
   notifications: boolean;
   sounds: boolean;
   showOrb: boolean;

@@ -9,6 +9,18 @@
   --cursor-elevated: var(--cursor-pane);
   --cursor-base: #f0f0f0;
 
+  /* fills for components that used to hardcode dark colors (see light block below) */
+  --fill-toast: #242424;
+  --fill-menu: #202020;
+  --fill-code-block: rgba(0, 0, 0, 0.42);
+  --fill-photo-card: rgba(0, 0, 0, 0.25);
+  --fill-msg-actions: radial-gradient(circle, #2a2a2a, #101010);
+  --fill-bot-surface: #0d0d0d;
+  --fill-scrollbar: rgba(255, 255, 255, 0.12);
+  --fill-scrollbar-hover: rgba(255, 255, 255, 0.2);
+  --text-danger-soft: #ffb1c6;
+  --text-badge-ok: #6fd598;
+
   /* text */
   --cursor-text-primary: var(--cursor-base);
   --cursor-text-secondary: #fcfcfc99;
@@ -92,4 +104,71 @@
 
   --shadow-pop: 0 10px 28px -6px #00000047, 0 2px 6px -1px #0000001f;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* ---------- light theme (html[data-theme="light"] — see src/theme.ts) ----------
+   The dark palette above is the default; this block only overrides colors.
+   Alpha overlays flip from white-on-dark to black-on-white; bubbles stay
+   identical (the dark/colored user bubbles read correctly on light surfaces). */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* surfaces */
+  --cursor-chrome: #f7f7f6;
+  --cursor-pane: #ffffff;
+  --cursor-sidebar: #f0f0ef;
+  --cursor-elevated: var(--cursor-pane);
+  --cursor-base: #181818;
+
+  /* text */
+  --cursor-text-primary: var(--cursor-base);
+  --cursor-text-secondary: #18181899;
+  --cursor-text-tertiary: #18181870;
+  --cursor-text-quaternary: #1818184d;
+
+  /* brand + semantic — same hues; tints darkened for white backgrounds */
+  --cursor-accent: #3573d1;
+  --cursor-blue: #3a6fb8;
+  --cursor-green: #2e8753;
+  --cursor-orange: #b45a3f;
+  --cursor-cyan: #3c7a94;
+  --cursor-yellow: #a3742e;
+  --cursor-magenta: #96497e;
+  --cursor-purple: #6f5bd6;
+  --cursor-danger: #d02a55;
+  --cursor-warn: #a3742e;
+
+  /* derived fills — alpha-blacks on white */
+  --cursor-bg-primary: rgba(0, 0, 0, 0.08);
+  --cursor-bg-secondary: rgba(0, 0, 0, 0.06);
+  --cursor-bg-tertiary: rgba(0, 0, 0, 0.045);
+  --cursor-bg-quaternary: rgba(0, 0, 0, 0.035);
+  --cursor-bg-quinary: rgba(0, 0, 0, 0.025);
+  --cursor-bg-input-field: rgba(0, 0, 0, 0.02);
+  --cursor-bg-active: rgba(0, 0, 0, 0.07);
+  --cursor-bg-focused: rgba(0, 0, 0, 0.09);
+  --cursor-bg-hover: rgba(0, 0, 0, 0.03);
+
+  --cursor-bg-blue-secondary: rgba(53, 115, 209, 0.12);
+  --cursor-bg-danger-secondary: rgba(208, 42, 85, 0.12);
+
+  /* strokes */
+  --cursor-stroke-primary: rgba(0, 0, 0, 0.14);
+  --cursor-stroke-secondary: rgba(0, 0, 0, 0.1);
+  --cursor-stroke-tertiary: rgba(0, 0, 0, 0.07);
+  --cursor-stroke-quaternary: rgba(0, 0, 0, 0.05);
+
+  /* fills that are dark-on-dark by default */
+  --fill-toast: #ffffff;
+  --fill-menu: #ffffff;
+  --fill-code-block: rgba(0, 0, 0, 0.05);
+  --fill-photo-card: rgba(0, 0, 0, 0.04);
+  --fill-msg-actions: radial-gradient(circle, #ffffff, #ececea);
+  --fill-bot-surface: #fbfbfa;
+  --fill-scrollbar: rgba(0, 0, 0, 0.2);
+  --fill-scrollbar-hover: rgba(0, 0, 0, 0.3);
+  --text-danger-soft: #b4123c;
+  --text-badge-ok: #1d7a44;
+
+  --shadow-pop: 0 10px 28px -6px rgba(0, 0, 0, 0.16), 0 2px 6px -1px rgba(0, 0, 0, 0.08);
 }

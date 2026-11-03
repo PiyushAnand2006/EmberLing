@@ -216,3 +216,20 @@ export const IconInfo = (p: { size?: number }) => (
     <path d="M12 11v5M12 8h.01" />
   </S>
 );
+export const IconSun = (p: { size?: number }) => (
+  <S {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+  </S>
+);
+export const IconMoon = (p: { size?: number }) => (
+  <S {...p}>
+    <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+  </S>
+);
+export const IconMonitor = (p: { size?: number }) => (
+  <S {...p}>
+    <rect x="2.5" y="4" width="19" height="13" rx="2" />
+    <path d="M8 21h8M12 17v4" />
+  </S>
+);

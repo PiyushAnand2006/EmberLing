@@ -45,6 +45,10 @@ const api = {
     readText: (filePath) => ipcRenderer.invoke("media:readText", filePath),
   },
 
+  theme: {
+    set: (mode) => ipcRenderer.invoke("theme:set", mode),
+  },
+
   dialog: {
     pickFiles: () => ipcRenderer.invoke("dialog:pickFiles"),
     saveExport: (payload) => ipcRenderer.invoke("dialog:saveExport", payload),
@@ -160,6 +164,7 @@ const api = {
 
   botScreen: {
     get: (botId) => ipcRenderer.invoke("bots:screen", botId),
+    frame: (botId) => ipcRenderer.invoke("bots:frame", botId),
   },
 
   updater: {

@@ -357,7 +357,7 @@ function RemoteCard({ wide }: { wide?: boolean }) {
       {keyInfo && (
         <div style={{ fontSize: 12 }}>
           Public key (append to the remote's <code>~/.ssh/authorized_keys</code>):
-          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", background: "rgba(0,0,0,0.35)", padding: 8, borderRadius: 6, fontFamily: "var(--cursor-font-family-mono)", fontSize: 11 }}>{keyInfo.publicKey}</pre>
+          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", background: "var(--fill-code-block)", padding: 8, borderRadius: 6, fontFamily: "var(--cursor-font-family-mono)", fontSize: 11 }}>{keyInfo.publicKey}</pre>
         </div>
       )}
       {result && <div style={{ fontSize: 12, color: result.ok ? "var(--cursor-green)" : "var(--cursor-danger)", wordBreak: "break-all" }}>{result.msg}</div>}

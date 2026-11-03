@@ -26,6 +26,9 @@ declare global {
       save(payload: { name: string; dataBase64: string }): Promise<{ id: string; url: string }>;
       readText(filePath: string): Promise<{ ok: boolean; content?: string; name?: string; size?: number; error?: string }>;
     };
+    theme: {
+      set(mode: "light" | "dark" | "system"): Promise<void>;
+    };
     dialog: {
       pickFiles(): Promise<string[]>;
       saveExport(payload: { defaultPath: string; content: string }): Promise<boolean>;
@@ -126,10 +129,12 @@ declare global {
   };
   botScreen: {
     get(botId: string): Promise<{
-      screen: { ts?: number; tool?: string; cmd?: string; exitCode?: number | null; out?: string; trail?: { ts: number; tool?: string; cmd?: string; out?: string }[] };
+      screen: { ts?: number; tool?: string; cmd?: string; exitCode?: number | null; out?: string; frameTs?: number | null; trail?: { ts: number; tool?: string; cmd?: string; out?: string }[] };
       acting: boolean;
       routines: { id: string; name: string; enabled: boolean; schedule: string; nextJoin: string | null }[];
     }>;
+    /** latest live browser frame for the bot's screen panel (data URL or null) */
+    frame(botId: string): Promise<{ dataUrl: string | null }>;
   };
   updater: {
     check(): Promise<{ ok: boolean; current: string; latest?: string; updateAvailable?: boolean; state?: string; portable: boolean; error?: string }>;

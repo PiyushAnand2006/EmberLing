@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useApp } from "../state";
 import type { ProviderInfo } from "../types";
 import { BUBBLE_COLORS } from "../types";
-import { IconSettings, IconBell, IconBrain, IconBot, IconKey, IconShield, IconMic, IconInfo, IconCheck, IconPlug, IconClock, IconSparkles, IconX } from "../components/Icons";
+import { IconSettings, IconBell, IconBrain, IconBot, IconKey, IconShield, IconMic, IconInfo, IconCheck, IconPlug, IconClock, IconSparkles, IconX, IconSun, IconMoon, IconMonitor } from "../components/Icons";
 import { LogoMark, Wordmark } from "../components/Brand";
 import { LANGUAGES } from "../i18n";
 import type { UsageRow, McpConfig } from "../types";
@@ -19,6 +19,13 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "plugins", label: "Plugins", icon: <IconSparkles size={14} /> },
   { id: "usage", label: "Usage", icon: <IconClock size={14} /> },
   { id: "about", label: "About", icon: <IconInfo size={14} /> },
+];
+
+// Appearance → theme modes (src/theme.ts maps these onto the CSS palette)
+const THEME_OPTIONS: { id: "light" | "dark" | "system"; label: string; icon: React.ReactNode }[] = [
+  { id: "light", label: "Light mode", icon: <IconSun size={14} /> },
+  { id: "dark", label: "Dark mode", icon: <IconMoon size={14} /> },
+  { id: "system", label: "System default", icon: <IconMonitor size={14} /> },
 ];
 
 // Auto-update status + manual check. Background progress also lands here via
@@ -598,7 +605,41 @@ export function SettingsScreen() {
         {section === "appearance" && (
           <>
             <h2>Appearance</h2>
-            <div className="screen-sub">Message bubble color — pick your look, iMessage style.</div>
+            <div className="screen-sub">Theme and message bubble color — pick your look, iMessage style.</div>
+            <div className="settings-group">
+              <div className="settings-row">
+                <div>
+                  <div className="row-label">Theme</div>
+                  <div className="row-sub">Light, dark, or follow your system.</div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {THEME_OPTIONS.map((o) => {
+                    const active = (settings.theme || "dark") === o.id;
+                    return (
+                      <button
+                        key={o.id}
+                        title={o.label}
+                        onClick={() => setSettings((s) => ({ ...s, theme: o.id }))}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "6px 12px",
+                          borderRadius: "var(--cursor-radius-lg)",
+                          fontSize: "var(--cursor-font-size-md)",
+                          color: active ? "var(--cursor-text-primary)" : "var(--cursor-text-secondary)",
+                          background: active ? "var(--cursor-bg-tertiary)" : "transparent",
+                          border: active ? "1px solid var(--cursor-accent)" : "1px solid var(--cursor-stroke-tertiary)",
+                        }}
+                      >
+                        {o.icon}
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
             <div className="settings-group">
               <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
                 <div className="row-label">Your bubble color</div>

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import type { Conversation, Bot, Memory, Automation, Settings, IntegrationState, ProviderInfo } from "./types";
+import { setThemeMode } from "./theme";
 
 interface Toast {
   id: number;
@@ -51,6 +52,7 @@ const FALLBACK_SETTINGS: Settings = {
     "send_email", "list_windows", "focus_window", "type_text", "save_memory",
   ],
   bubbleColor: "default",
+  theme: "dark",
   notifications: true,
   sounds: true,
   showOrb: true,
@@ -185,6 +187,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loaded) window.emberling.orb.sync(settings.showOrb);
   }, [settings.showOrb, loaded]);
+
+  // appearance theme — data-theme on <html> drives the CSS palette; main keeps
+  // nativeTheme (and thus prefers-color-scheme) in sync for native surfaces.
+  // Only push to main after load: main already seeded nativeTheme from stored
+  // settings at startup, and an early fallback push would flash dark first.
+  useEffect(() => {
+    setThemeMode(settings.theme || "dark");
+    if (loaded) window.emberling.theme.set(settings.theme || "dark");
+  }, [settings.theme, loaded]);
 
   // apply settings pushed from the main process (e.g. tray orb toggle)
   useEffect(() => {

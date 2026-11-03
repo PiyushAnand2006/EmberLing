@@ -5,6 +5,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { IconCopy } from "./Icons";
+import { onThemeChange, resolvedTheme, type ResolvedTheme } from "../theme";
 
 function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -38,23 +39,27 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
 }
 
 /* ---------- Mermaid diagrams (all the original's *Diagram chunk types) ---------- */
-let mermaidReady: Promise<any> | null = null;
-function loadMermaid() {
-  if (!mermaidReady) {
-    mermaidReady = import("mermaid").then((m) => {
-      m.default.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
-      return m.default;
-    });
+let mermaidMod: any = null;
+let mermaidTheme: ResolvedTheme | null = null;
+async function loadMermaid(theme: ResolvedTheme) {
+  if (!mermaidMod) mermaidMod = await import("mermaid");
+  // mermaid bakes colors into the SVG at render time — re-initialize whenever
+  // the resolved theme flips (src/theme.ts)
+  if (mermaidTheme !== theme) {
+    mermaidMod.default.initialize({ startOnLoad: false, theme: theme === "dark" ? "dark" : "default", securityLevel: "strict" });
+    mermaidTheme = theme;
   }
-  return mermaidReady;
+  return mermaidMod.default;
 }
 
 function Mermaid({ code }: { code: string }) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [theme, setTheme] = useState<ResolvedTheme>(resolvedTheme());
+  useEffect(() => onThemeChange(setTheme), []);
   useEffect(() => {
     let alive = true;
-    loadMermaid()
+    loadMermaid(theme)
       .then((mermaid) => mermaid.render(`mmd-${Math.random().toString(36).slice(2)}`, code))
       .then(({ svg }: { svg: string }) => {
         if (alive) setSvg(svg);
@@ -63,7 +68,7 @@ function Mermaid({ code }: { code: string }) {
     return () => {
       alive = false;
     };
-  }, [code]);
+  }, [code, theme]);
   if (error)
     return (
       <div className="tool-line" style={{ cursor: "default" }}>
@@ -71,7 +76,7 @@ function Mermaid({ code }: { code: string }) {
       </div>
     );
   return svg ? (
-    <div className="photo-card mermaid-card" style={{ background: "rgba(0,0,0,0.25)", padding: 10, margin: "8px 0" }} dangerouslySetInnerHTML={{ __html: svg }} />
+    <div className="photo-card mermaid-card" style={{ padding: 10, margin: "8px 0" }} dangerouslySetInnerHTML={{ __html: svg }} />
   ) : (
     <div className="status-pill">Rendering diagram…</div>
   );
@@ -125,7 +130,7 @@ function Chart({ code }: { code: string }) {
       })
       .join("");
     return (
-      <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 12, margin: "8px 0" }}>
+      <div className="photo-card" style={{ padding: 12, margin: "8px 0" }}>
         <svg viewBox="0 0 200 180" style={{ width: 220, display: "block", margin: "0 auto" }} dangerouslySetInnerHTML={{ __html: slices }} />
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 6, fontSize: 11, color: "var(--cursor-text-secondary)" }}>
           {data.map((v, i) => (
@@ -144,7 +149,7 @@ function Chart({ code }: { code: string }) {
     const w = 340, h = 160, pad = 24;
     const pts = data.map((v, i) => `${pad + (i * (w - pad * 2)) / Math.max(1, data.length - 1)},${h - pad - (v / max) * (h - pad * 2)}`);
     return (
-      <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 12, margin: "8px 0" }}>
+      <div className="photo-card" style={{ padding: 12, margin: "8px 0" }}>
         <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", maxWidth: 380, display: "block" }}>
           {type === "area" && <polygon points={`${pad},${h - pad} ${pts.join(" ")} ${w - pad},${h - pad}`} fill="rgba(245,78,0,0.22)" />}
           <polyline points={pts.join(" ")} fill="none" stroke="#599ce7" strokeWidth="2.5" />
@@ -169,7 +174,7 @@ function Chart({ code }: { code: string }) {
     const maxY = Math.max(...data, 1);
     const maxX = Math.max(...xs.map((v: any) => Number(v) || 0), 1);
     return (
-      <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 12, margin: "8px 0" }}>
+      <div className="photo-card" style={{ padding: 12, margin: "8px 0" }}>
         <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", maxWidth: 380, display: "block" }}>
           {[0.25, 0.5, 0.75].map((f) => (
             <line key={f} x1={pad} y1={pad + f * (h - pad * 2)} x2={w - pad} y2={pad + f * (h - pad * 2)} stroke="rgba(255,255,255,0.08)" />
@@ -186,7 +191,7 @@ function Chart({ code }: { code: string }) {
 
   const max = Math.max(...data, 1);
   return (
-    <div className="photo-card" style={{ background: "rgba(0,0,0,0.25)", padding: 12, margin: "8px 0" }}>
+    <div className="photo-card" style={{ padding: 12, margin: "8px 0" }}>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 140, justifyContent: "center" }}>
         {data.map((v, i) => (
           <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1, maxWidth: 60 }}>
@@ -286,7 +291,7 @@ function GraphBlock({ code }: { code: string }) {
     };
   }, [code]);
   return (
-    <div className="photo-card" style={{ background: "rgba(0,0,0,0.3)", padding: 6, margin: "8px 0" }}>
+    <div className="photo-card" style={{ padding: 6, margin: "8px 0" }}>
       {error ? <div className="tool-line" style={{ cursor: "default" }}>graph: {error}</div> : <div ref={ref} style={{ width: "100%", height: 240 }} />}
     </div>
   );
@@ -372,7 +377,7 @@ function ThreeBlock({ code }: { code: string }) {
     };
   }, [code]);
   return (
-    <div className="photo-card" style={{ background: "rgba(0,0,0,0.3)", padding: 6, margin: "8px 0" }}>
+    <div className="photo-card" style={{ padding: 6, margin: "8px 0" }}>
       {error ? <div className="tool-line" style={{ cursor: "default" }}>three: {error}</div> : <div ref={ref} style={{ width: "100%", height: 260, borderRadius: 8 }} />}
     </div>
   );
