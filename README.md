@@ -2,6 +2,8 @@
 
 ![EmberLing](assets/brand/app-icon.svg)
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-f54e00.svg)](LICENSE)
+
 **EmberLing** is a desktop AI agent for Windows — chat, tools, bots, automations, MCP, voice, publishing — rebuilt from static reverse-engineering (REA) of a shipped 124 MB installer (`Grok_Bot_0.75.8_Setup.exe`) and re-wired to run entirely on **free / keyless AI providers**. Built for learning and hackathon use.
 
 > ⚠️ **Caution:** this project reconstructs the UI/UX language and feature surface of a commercial app for educational purposes. It ships none of the original's code, keys, or backend access. Don't use it to impersonate the original product.
@@ -9,6 +11,14 @@
 > 🔥 **Etymology:** *ember* — one bright dot of fire in orbit — + *-ling*, a small creature. The mascot **Orby** is exactly that: a glowing dot with an orbit ring and a satellite bead. The bot family (Dotlings) shares the same geometry.
 
 **One-line pitch:** every feature of a paid desktop agent, running on a free API key — or no key at all.
+
+---
+
+## The 22-second demo
+
+No sound, no narration — it types, builds, asks before it acts and then repeats on schedule, all by itself. Turn the volume up; there's nothing to hear.
+
+![Emberling in 22 seconds — a silent demo: a keyless chat, a private Linux VM, real tools, an approval click, and an automation that runs every morning](docs/video/brag.mp4)
 
 ---
 

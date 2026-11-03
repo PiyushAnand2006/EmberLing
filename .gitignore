@@ -15,3 +15,6 @@ public/
 # parallel-session tool artifacts
 .opencode/
 reports/
+
+# brag video working folder (only docs/video/ is committed)
+brag-output/
