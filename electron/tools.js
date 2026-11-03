@@ -603,6 +603,72 @@ function toolsRequiringApproval(name) {
   return NEEDS_APPROVAL.has(name);
 }
 
+/* ---------- Dotling virtual screen feed ----------
+ * Every tool a Dotling runs updates its "screen" panel (the rail on bot
+ * chats): the last action as text, and — for browser actions — a live
+ * screenshot frame written alongside it. Main-chat agents have no panel and
+ * record nothing (ctx.botId is only set for bot conversations). */
+const SCREEN_FRAME_TOOLS = new Set(["browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_scroll", "browser_screenshot"]);
+
+function screenCmdFor(name, args, res) {
+  const head = (s, n = 140) => String(s ?? "").slice(0, n);
+  switch (name) {
+    case "run_command": return `sh: ${head(args.command)}`;
+    case "web_search": return `search: ${head(args.query)}`;
+    case "web_fetch": return `fetch: ${head(args.url)}`;
+    case "link_preview": return `preview: ${head(args.url)}`;
+    case "browser_open": return `open: ${head(args.url)}${res?.title ? ` — ${head(res.title, 60)}` : ""}`;
+    case "browser_snapshot": return `snapshot${res?.title ? `: ${head(res.title, 80)}` : ""}`;
+    case "browser_click": return `click: element #${args.index}`;
+    case "browser_type": return `type: ${head(args.text, 120)}`;
+    case "browser_scroll": return `scroll ${args.direction || "down"}`;
+    case "browser_screenshot": return "screenshot";
+    case "screenshot":
+    case "screen_screenshot": return "capture screen";
+    case "window_screenshot": return `capture window: ${head(args.title)}`;
+    case "ocr_image": return `ocr: ${head(args.path)}`;
+    case "read_file": return `read: ${head(args.path)}`;
+    case "write_file": return `write: ${head(args.path)}`;
+    case "edit_file": return `edit: ${head(args.path)}`;
+    case "list_dir": return `ls: ${head(args.path || args.cwd)}`;
+    default: return `${name} ${head(args?.path || args?.cwd || args?.title || args?.name || args?.query)}`.trim();
+  }
+}
+
+function screenOutFor(name, res) {
+  if (!res || res.ok === false) return String(res?.error || "").slice(0, 180);
+  if (name === "web_search" && Array.isArray(res.results)) {
+    return res.results.slice(0, 3).map((r) => r?.title || r?.url || "").filter(Boolean).join(" · ");
+  }
+  if (typeof res.title === "string" && res.title) return res.title.slice(0, 180);
+  return "";
+}
+
+async function recordBotScreen(ctx, name, args, res) {
+  try {
+    if (!ctx.botId || typeof ctx.screenState !== "function") return;
+    // STATUS_BY_TOOL is the "visible work" set; MCP tools count too
+    if (!STATUS_BY_TOOL[name] && !name.startsWith("mcp_")) return;
+    let frameTs = null;
+    if (SCREEN_FRAME_TOOLS.has(name) && typeof ctx.screenFrame === "function") {
+      try {
+        const shot = await browserCtl.screenshot(ctx.signal);
+        if (shot?.pngBase64) {
+          const saved = await ctx.screenFrame(shot.pngBase64);
+          frameTs = saved?.ts ?? null;
+        }
+      } catch {}
+    }
+    ctx.screenState({
+      tool: name,
+      cmd: screenCmdFor(name, args || {}, res),
+      exitCode: res?.exitCode ?? (res?.ok === false ? 1 : 0),
+      out: screenOutFor(name, res),
+      frameTs,
+    });
+  } catch {}
+}
+
 /* ---------- Linux sandbox routing ----------
  * When the user's execution target is "sandbox", the shell/file tools run
  * inside the WSL distro (the agent's Linux box). While the sandbox is not
@@ -617,18 +683,9 @@ async function runToolInSandbox(name, args, ctx) {
   // While the VM is not ready, execution falls back to this computer WITH the
   // normal approval gating (the safe default for host-side actions).
   const state = await sandbox.probe();
-  const finish = (res, cmdHead) => {
-    // every VM action updates the Dotling's virtual screen
-    if (ctx.screenState && ctx.botId) {
-      ctx.screenState({
-        tool: name,
-        cmd: cmdHead ?? (name === "run_command" ? String(args.command || "") : `${name} ${args.path || args.cwd || ""}`),
-        exitCode: res?.exitCode ?? (res?.ok === false ? 1 : 0),
-        out: res?.stdout ?? res?.entries ?? res?.content ?? res?.error ?? "",
-      });
-    }
-    return res;
-  };
+  // screen recording happens centrally in executeTool (recordBotScreen) for
+  // every tool — finish just passes results through (cmdHead kept at call sites)
+  const finish = (res) => res;
   if (state.state !== "ready") {
     const fallback = await executeTool(callFor(name, args), { ...ctx, executionTarget: "local" });
     return {
@@ -758,6 +815,14 @@ async function listDir(p) {
 // renderer surface the original's approval card UX before anything privileged
 // runs (see shell-runner's security contract).
 async function executeTool(call, ctx) {
+  const res = await executeToolInner(call, ctx);
+  // one screen-feed record per executed tool (bot chats only; aborted turns
+  // throw before reaching this)
+  await recordBotScreen(ctx, call.name, call.args, res);
+  return res;
+}
+
+async function executeToolInner(call, ctx) {
   const { name, args } = call;
   const signal = ctx.signal;
   // a stop/abort must win over everything already queued — including an

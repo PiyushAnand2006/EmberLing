@@ -10,6 +10,13 @@ function screenPath(storeRoot, botId) {
   return path.join(storeRoot, scopeId(botId), "screen.json");
 }
 
+// latest live browser frame for the bot's screen panel — one PNG per bot,
+// overwritten atomically on every browser action (bots:frame serves it)
+function framePath(storeRoot, botId) {
+  const { scopeId } = require("./agent-store");
+  return path.join(storeRoot, scopeId(botId), "frames", "frame.png");
+}
+
 // Called after every VM command routed for a Dotling: record the last action
 // so "<Name>'s screen" can show it. Bounded output; never throws.
 async function recordScreenActivity(storeRoot, botId, entry) {
@@ -22,6 +29,9 @@ async function recordScreenActivity(storeRoot, botId, entry) {
       cmd: String(entry?.cmd || "").slice(0, 200),
       exitCode: entry?.exitCode ?? null,
       out: String(entry?.out || "").slice(0, 600),
+      // ts of the live browser frame written alongside this action (or null —
+      // the panel clears its image when the latest action has no frame)
+      frameTs: entry?.frameTs ?? null,
     };
     // rolling trail: last 6 actions (newest first) — the "screen" feed
     const trail = [{ ...next }, ...(prev.trail || [])].slice(0, 6);
@@ -43,4 +53,4 @@ function isActing(screen) {
   return !!(screen?.ts && Date.now() - screen.ts < 90_000);
 }
 
-module.exports = { recordScreenActivity, readScreen, isActing, screenPath };
+module.exports = { recordScreenActivity, readScreen, isActing, screenPath, framePath };

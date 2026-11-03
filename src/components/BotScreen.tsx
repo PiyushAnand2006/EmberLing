@@ -1,12 +1,14 @@
 // Per-Dotling virtual screen panel — the original's "EA's screen": a dark
 // surface showing what the bot's VM is doing, with its Routines (recurring
 // tasks) listed beneath. Idle = centered monitor icon; active = "Acting on
-// the screen" with the last VM action. Rendered as a right rail on bot chats.
-import React, { useEffect, useState } from "react";
+// the screen" with the last VM action, and — when the bot is driving the
+// browser — a live screenshot frame of its page. Rendered as a side rail on
+// bot chats.
+import React, { useEffect, useRef, useState } from "react";
 import { IconClock } from "./Icons";
 
 type ScreenData = {
-  screen?: { ts?: number; tool?: string; cmd?: string; exitCode?: number | null; out?: string; trail?: { ts: number; tool?: string; cmd?: string; out?: string }[] };
+  screen?: { ts?: number; tool?: string; cmd?: string; exitCode?: number | null; out?: string; frameTs?: number | null; trail?: { ts: number; tool?: string; cmd?: string; out?: string }[] };
   acting?: boolean;
   routines?: { id: string; name: string; enabled: boolean; schedule: string; nextJoin: string | null }[];
 };
@@ -22,6 +24,8 @@ function MonitorGlyph() {
 
 export function BotScreenPanel({ botId, botName }: { botId: string; botName: string }) {
   const [data, setData] = useState<ScreenData | null>(null);
+  const [frame, setFrame] = useState<string | null>(null);
+  const frameTsRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!botId) return;
@@ -29,11 +33,25 @@ export function BotScreenPanel({ botId, botName }: { botId: string; botName: str
     const pull = async () => {
       try {
         const res = await window.emberling.botScreen.get(botId);
-        if (!off) setData(res);
+        if (off) return;
+        setData(res);
+        // fetch the live browser frame only when a new one was written
+        const frameTs = res?.screen?.frameTs ?? null;
+        if (frameTs && frameTs !== frameTsRef.current) {
+          const f = await window.emberling.botScreen.frame(botId);
+          if (!off) {
+            frameTsRef.current = frameTs;
+            setFrame(f?.dataUrl || null);
+          }
+        } else if (!frameTs && frameTsRef.current !== null) {
+          // latest action had no frame (left the browser) — clear the image
+          frameTsRef.current = null;
+          setFrame(null);
+        }
       } catch {}
     };
     pull();
-    const timer = setInterval(pull, 5000);
+    const timer = setInterval(pull, 2500);
     return () => {
       off = true;
       clearInterval(timer);
@@ -47,7 +65,12 @@ export function BotScreenPanel({ botId, botName }: { botId: string; botName: str
     <div className="bot-screen-panel">
       {/* virtual screen surface */}
       <div className={`bot-screen-surface${acting ? " acting" : ""}`}>
-        {acting && last ? (
+        {acting && frame ? (
+          <div className="bot-screen-frame-wrap">
+            <img className="bot-screen-frame" src={frame} alt={`${botName}'s browser`} />
+            <span className="bot-screen-live-badge">LIVE</span>
+          </div>
+        ) : acting && last ? (
           <div className="bot-screen-live">
             <div className="bot-screen-status">Acting on the screen</div>
             <code className="bot-screen-cmd">{last.cmd}</code>
@@ -59,6 +82,7 @@ export function BotScreenPanel({ botId, botName }: { botId: string; botName: str
           </div>
         )}
       </div>
+      {acting && frame && last ? <code className="bot-screen-cmd bot-screen-cmd-below">{last.cmd}</code> : null}
       <div className="bot-screen-caption">{botName}&rsquo;s screen</div>
 
       {/* routines */}

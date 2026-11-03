@@ -139,10 +139,15 @@ await test("appearance bubble color button", async () => {
 await click(".screen-nav .nav-row:nth-child(1)");
 await sleep(300);
 await test("general toggle (desktop mark)", async () => {
-  const before = await evalJs(`document.querySelector('.settings-row .toggle')?.className`);
-  await click(".settings-row .toggle");
+  // target the Desktop mark toggle explicitly — the first .toggle on General
+  // is the sandbox one, which refuses to turn ON while the WSL probe is
+  // unresolved (and flips executionTarget as a side effect)
+  const find = `(() => { const row = [...document.querySelectorAll('.settings-row')].find(r => r.textContent.includes('Desktop mark')); return row?.querySelector('.toggle')?.className; })()`;
+  const before = await evalJs(find);
+  if (!before) return false;
+  await evalJs(`(() => { const row = [...document.querySelectorAll('.settings-row')].find(r => r.textContent.includes('Desktop mark')); row?.querySelector('.toggle')?.click(); return true; })()`);
   await sleep(300);
-  const after = await evalJs(`document.querySelector('.settings-row .toggle')?.className`);
+  const after = await evalJs(find);
   return before !== after;
 });
 
