@@ -9,7 +9,7 @@ const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
 
 const store = require("./store");
-const { PROVIDERS, providerById } = require("./providers");
+const { PROVIDERS, providerById, chatUrl } = require("./providers");
 const { runAgentTurn } = require("./agent");
 const { scopeId, AgentStore } = require("./agent-store");
 const guard = require("./guard");
@@ -760,7 +760,8 @@ ipcMain.handle("providers:fetchModels", async (_e, { providerId, apiKey, baseUrl
 ipcMain.handle("providers:test", async (_e, { providerId, apiKey, baseUrl, model }) => {
   const provider = providerById(providerId);
   if (!provider) return { ok: false, error: "unknown provider" };
-  const url = baseUrl || provider.url;
+  // accept both base-URL shapes (root …/v1 and full …/v1/chat/completions)
+  const url = chatUrl(baseUrl || provider.url);
   if (!url) return { ok: false, error: "no base URL" };
   try {
     const res = await fetch(url, {

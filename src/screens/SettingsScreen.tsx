@@ -364,7 +364,7 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
             <option value="">custom…</option>
           </select>
           {provider.id === "custom" && (
-            <input className="text-input" style={{ flex: 1, minWidth: 200 }} placeholder="Base URL https://…/v1/chat/completions" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+            <input className="text-input" style={{ flex: 1, minWidth: 200 }} placeholder="Base URL https://…/v1 or https://…/v1/chat/completions" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
           )}
         </div>
         {!["custom"].includes(provider.id) && model === "" && (

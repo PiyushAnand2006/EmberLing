@@ -102,9 +102,22 @@ function providerById(id) {
   return PROVIDERS.find((p) => p.id === id) || null;
 }
 
-// Derive the /models listing endpoint from a chat-completions URL
+// Custom base URLs come in two shapes — the API root ("https://host/v1") and
+// the full chat endpoint ("https://host/v1/chat/completions"). Model discovery
+// used to tolerate both while the chat/test POSTs used the URL as-is, so a
+// root URL loaded the model list fine and then 404'd every completion.
+// chatUrl() canonicalizes either shape into the chat-completions endpoint;
+// modelsUrl() derives the listing endpoint from it.
+function chatUrl(baseUrl) {
+  let s = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (s && !/\/chat\/completions$/.test(s)) {
+    s += /\/v\d+$/.test(s) ? "/chat/completions" : "/v1/chat/completions";
+  }
+  return s;
+}
+
 function modelsUrl(baseUrl) {
-  return String(baseUrl || "").replace(/\/chat\/completions\/?$/, "") + "/models";
+  return chatUrl(baseUrl).replace(/\/chat\/completions$/, "") + "/models";
 }
 
 // Live model discovery: GET /models with the saved key (OpenAI-compatible
@@ -138,7 +151,7 @@ function activeConfig(settings) {
   if (!apiKey) return null;
   return {
     providerId: pid,
-    baseUrl: creds.baseUrl || provider.url,
+    baseUrl: chatUrl(creds.baseUrl || provider.url),
     apiKey,
     keyless: !!provider.keyless,
     model: creds.model || provider.models[0]?.id || "",
@@ -419,4 +432,4 @@ async function transcribeWith(url, key, model, filePath, mimeType) {
   return json.text || "";
 }
 
-module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, safeJson };
+module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, chatUrl, safeJson };
