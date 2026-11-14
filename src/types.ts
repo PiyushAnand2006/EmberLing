@@ -139,10 +139,11 @@ export interface ProviderCreds {
   /** Model ids discovered live from the provider's /models endpoint. */
   models?: string[];
 }
-
 export interface Settings {
   activeProvider: string;
   providers: Record<string, ProviderCreds>;
+  /** User-added custom (OpenAI-compatible) providers; creds live in providers[id]. */
+  customProviders?: { id: string; name: string }[];
   approvalMode: "ask" | "askRisky" | "auto";
   agentTools: string[];
   bubbleColor: string;
@@ -203,6 +204,8 @@ export interface ProviderInfo {
   url: string;
   keyUrl: string;
   models: ProviderModel[];
+  /** Keyless providers (e.g. Pollinations) need no API key. */
+  keyless?: boolean;
 }
 
 export interface AgentEvent {

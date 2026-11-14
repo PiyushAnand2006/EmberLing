@@ -9,7 +9,7 @@ const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
 
 const store = require("./store");
-const { PROVIDERS, providerById, chatUrl } = require("./providers");
+const { PROVIDERS, providerById, resolveProvider, chatUrl } = require("./providers");
 const { runAgentTurn } = require("./agent");
 const { scopeId, AgentStore } = require("./agent-store");
 const guard = require("./guard");
@@ -555,6 +555,7 @@ function defaultSettings() {
     autoReviewRules: [],
     bubbleColor: "default",
     theme: "dark", // light | dark | system
+    customProviders: [], // user-added OpenAI-compatible providers; creds live in providers[id]
     notifications: true,
     sounds: true,
     showOrb: true,
@@ -758,7 +759,8 @@ ipcMain.handle("providers:fetchModels", async (_e, { providerId, apiKey, baseUrl
 });
 
 ipcMain.handle("providers:test", async (_e, { providerId, apiKey, baseUrl, model }) => {
-  const provider = providerById(providerId);
+  // dynamic custom provider ids resolve against stored settings, not the catalog
+  const provider = providerById(providerId) || resolveProvider(providerId, loadSettings());
   if (!provider) return { ok: false, error: "unknown provider" };
   // accept both base-URL shapes (root …/v1 and full …/v1/chat/completions)
   const url = chatUrl(baseUrl || provider.url);

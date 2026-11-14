@@ -53,6 +53,7 @@ const FALLBACK_SETTINGS: Settings = {
   ],
   bubbleColor: "default",
   theme: "dark",
+  customProviders: [],
   notifications: true,
   sounds: true,
   showOrb: true,
@@ -83,6 +84,18 @@ function mergePushed<T extends { id: string }>(local: T[], pushed: T[], tsKey: k
   const merged = Array.from(byId.values());
   merged.sort((a, b) => (Number(b[tsKey]) || 0) - (Number(a[tsKey]) || 0));
   return merged;
+}
+
+/** Resolve a provider id (static catalog or user-added custom) into a
+ * ProviderInfo-shaped object; custom-shaped ids synthesize from settings. */
+export function resolveProviderInfo(id: string, settings: Settings, staticProviders: ProviderInfo[]): ProviderInfo | null {
+  const staticP = staticProviders.find((p) => p.id === id);
+  if (staticP) return staticP;
+  const dyn = (settings.customProviders || []).find((c) => c.id === id);
+  if (id === "custom" || dyn) {
+    return { id, name: dyn?.name || "Custom (OpenAI-compatible)", url: "", keyUrl: "", models: [] };
+  }
+  return null;
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {

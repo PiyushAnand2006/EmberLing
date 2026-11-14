@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useApp } from "../state";
+import { useApp, resolveProviderInfo } from "../state";
 import type { Attachment } from "../types";
 import { PopoverMenu } from "./Menu";
 import { RichEditor } from "./RichEditor";
@@ -106,7 +106,8 @@ export function Composer({
     return off;
   }, []);
 
-  const activeProvider = providers.find((p) => p.id === settings.activeProvider);
+  // dynamic custom providers aren't in the static catalog — resolve from settings
+  const activeProvider = resolveProviderInfo(settings.activeProvider, settings, providers);
   const creds = settings.providers[settings.activeProvider];
   const activeModel = creds?.model || activeProvider?.models[0]?.id || "";
   const activeBot = bots.find((b) => b.id === conversation?.botId);

@@ -261,15 +261,39 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [liveModels, setLiveModels] = useState<string[]>([]);
   const [modelsNote, setModelsNote] = useState("");
+  // user-added custom providers (the legacy `custom` slot included) take a
+  // base URL, an optional key, and — for the added ones — an editable name
+  const isCustomShape = provider.id === "custom" || (settings.customProviders || []).some((c) => c.id === provider.id);
+  const isDynamicCustom = isCustomShape && provider.id !== "custom";
+  const [name, setName] = useState(provider.name);
   const isActive = settings.activeProvider === provider.id;
-  const configured = !!creds.apiKey || !!(provider as any).keyless;
+  const configured = !!creds.apiKey || !!provider.keyless;
+
+  const commitName = () => {
+    const n = name.trim() || "Custom (OpenAI-compatible)";
+    if (n === provider.name) return;
+    setName(n);
+    setSettings((s) => ({ ...s, customProviders: (s.customProviders || []).map((c) => (c.id === provider.id ? { ...c, name: n } : c)) }));
+  };
+
+  const remove = () => {
+    if (!window.confirm(`Remove ${name || provider.name}? Its saved key and models will be deleted.`)) return;
+    setSettings((s) => ({
+      ...s,
+      customProviders: (s.customProviders || []).filter((c) => c.id !== provider.id),
+      providers: Object.fromEntries(Object.entries(s.providers).filter(([k]) => k !== provider.id)),
+      // if the removed one was active, promote the first remaining configured provider
+      activeProvider: s.activeProvider === provider.id ? Object.keys(s.providers).find((k) => k !== provider.id && s.providers[k]?.apiKey) || "" : s.activeProvider,
+    }));
+    toast("provider removed");
+  };
 
   // auto-load the provider's live model list when a key is available;
   // discovered ids persist into settings so the chat model menu sees them too
   const loadModels = async (keyOverride?: string) => {
-    if ((provider as any).keyless) return;
+    if (provider.keyless) return;
     const key = (keyOverride ?? apiKey).trim();
-    if (!key && provider.id !== "custom") return;
+    if (!key && !isCustomShape) return;
     setModelsNote("loading models…");
     const res = await window.emberling.providers.fetchModels({ providerId: provider.id, apiKey: key, baseUrl: baseUrl.trim() });
     if (res.ok && res.models?.length) {
@@ -325,7 +349,19 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
     <div className="settings-group" style={{ borderColor: isActive ? "rgba(89,156,231,0.5)" : undefined }}>
       <div className="settings-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
-          <strong style={{ flex: 1 }}>{provider.name}</strong>
+          {isDynamicCustom ? (
+            <input
+              className="text-input"
+              style={{ flex: 1, minWidth: 160 }}
+              value={name}
+              title="Provider name"
+              onChange={(e) => setName(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+          ) : (
+            <strong style={{ flex: 1 }}>{provider.name}</strong>
+          )}
           {isActive && <span className="badge ok">Active</span>}
           {configured && !isActive && (
             <button
@@ -335,13 +371,18 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
               Use
             </button>
           )}
+          {isDynamicCustom && (
+            <button className="btn subtle" onClick={remove} title="Remove this provider">
+              Remove
+            </button>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, width: "100%", flexWrap: "wrap" }}>
           <input
             className="text-input"
             style={{ flex: 1, minWidth: 200 }}
             type="password"
-            placeholder={provider.id === "custom" ? "API key (optional)" : "API key"}
+            placeholder={isCustomShape ? "API key (optional)" : "API key"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
@@ -363,11 +404,11 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
             {currentMissing && <option value={model}>{model} (current)</option>}
             <option value="">custom…</option>
           </select>
-          {provider.id === "custom" && (
+          {isCustomShape && (
             <input className="text-input" style={{ flex: 1, minWidth: 200 }} placeholder="Base URL https://…/v1 or https://…/v1/chat/completions" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
           )}
         </div>
-        {!["custom"].includes(provider.id) && model === "" && (
+        {!isCustomShape && model === "" && (
           <input className="text-input" style={{ width: "100%" }} placeholder="Custom model id" value={model} onChange={(e) => setModel(e.target.value)} />
         )}
         {provider.keyUrl && (
@@ -387,8 +428,8 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
           <div style={{ fontSize: 12, color: testResult.ok ? "var(--cursor-green)" : "var(--cursor-danger)", wordBreak: "break-all" }}>{testResult.msg}</div>
         )}
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn primary" onClick={save} disabled={!apiKey.trim() && provider.id !== "custom" && !(provider as any).keyless}>
-            {(provider as any).keyless ? "Use this provider" : "Save key"}
+          <button className="btn primary" onClick={save} disabled={!apiKey.trim() && !isCustomShape && !provider.keyless}>
+            {provider.keyless ? "Use this provider" : "Save key"}
           </button>
           <button className="btn" onClick={test} disabled={testing}>
             {testing ? "Testing…" : "Test"}
@@ -444,6 +485,22 @@ export function SettingsScreen() {
   const initial = (app.route as any).section as Section | undefined;
   const [section, setSection] = useState<Section>(initial && SECTIONS.some((s) => s.id === initial) ? initial : "general");
 
+  // static catalog (minus the built-in custom slot) + user-added custom providers
+  const staticProviders = providers.filter((p) => p.id !== "custom");
+  const customProviders: ProviderInfo[] = [
+    { id: "custom", name: "Custom (OpenAI-compatible)", url: "", keyUrl: "", models: [] },
+    ...(settings.customProviders || []).map((c) => ({ id: c.id, name: c.name, url: "", keyUrl: "", models: [] })),
+  ];
+  const addCustomProvider = () =>
+    setSettings((s) => {
+      const t = new Uint32Array(1);
+      crypto.getRandomValues(t);
+      return {
+        ...s,
+        customProviders: [...(s.customProviders || []), { id: "custom-" + t[0].toString(36), name: "Custom (OpenAI-compatible)" }],
+      };
+    });
+
   return (
     <div className="screen">
       <div className="screen-nav">
@@ -459,9 +516,16 @@ export function SettingsScreen() {
           <>
             <h2>General</h2>
             <div className="screen-sub">Free API providers — add a key, test it, and chat. Keys stay on this computer.</div>
-            {providers.map((p) => (
+            {staticProviders.map((p) => (
               <ProviderCard key={p.id} provider={p} />
             ))}
+            {customProviders.map((p) => (
+              <ProviderCard key={p.id} provider={p} />
+            ))}
+            <div style={{ marginBottom: 16 }}>
+              <button className="btn" onClick={addCustomProvider}>+ Add custom provider</button>
+              <div className="screen-sub" style={{ marginTop: 6 }}>Any OpenAI-compatible endpoint — NVIDIA, FreeLLM, LM Studio, a relay… each gets its own key, model and fallback slot.</div>
+            </div>
             <div className="settings-group">
               <div className="settings-row">
                 <div>

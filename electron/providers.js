@@ -102,6 +102,28 @@ function providerById(id) {
   return PROVIDERS.find((p) => p.id === id) || null;
 }
 
+// User-added custom (OpenAI-compatible) providers live in settings
+// (customProviders + creds under providers[id]) rather than the static
+// catalog. resolveProvider is the ONE lookup every caller should use —
+// static ids resolve as before; custom-shaped ids synthesize an entry.
+const CUSTOM_ID_RE = /^custom(-[a-z0-9]+)?$/;
+function resolveProvider(id, settings) {
+  const staticP = providerById(id);
+  if (staticP) return staticP;
+  const dyn = (settings?.customProviders || []).find((c) => c.id === id);
+  if (id === "custom" || (dyn && CUSTOM_ID_RE.test(id))) {
+    return {
+      id,
+      name: dyn?.name || "Custom (OpenAI-compatible)",
+      url: "",
+      keyUrl: "",
+      models: [],
+      supportsTools: true,
+    };
+  }
+  return null;
+}
+
 // Custom base URLs come in two shapes — the API root ("https://host/v1") and
 // the full chat endpoint ("https://host/v1/chat/completions"). Model discovery
 // used to tolerate both while the chat/test POSTs used the URL as-is, so a
@@ -124,8 +146,9 @@ function modelsUrl(baseUrl) {
 // shape { data: [{ id }] }; tolerate { models: [{ name | id }] }).
 async function fetchModels({ providerId, apiKey, baseUrl }) {
   const provider = providerById(providerId);
-  if (!provider) throw new Error("unknown provider");
-  if (provider.keyless) throw new Error("keyless provider uses its fixed model list");
+  if (provider?.keyless) throw new Error("keyless provider uses its fixed model list");
+  // user-added custom providers aren't in the static catalog — their baseUrl carries everything
+  if (!baseUrl && !provider?.url) throw new Error("a base URL is required");
   const url = modelsUrl(baseUrl || provider.url);
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -145,7 +168,7 @@ async function fetchModels({ providerId, apiKey, baseUrl }) {
 function activeConfig(settings) {
   const pid = settings.activeProvider || "";
   const creds = (settings.providers || {})[pid] || {};
-  const provider = providerById(pid);
+  const provider = resolveProvider(pid, settings);
   if (!provider) return null;
   const apiKey = creds.apiKey || (provider.keyless ? "free" : "");
   if (!apiKey) return null;
@@ -432,4 +455,4 @@ async function transcribeWith(url, key, model, filePath, mimeType) {
   return json.text || "";
 }
 
-module.exports = { PROVIDERS, providerById, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, chatUrl, safeJson };
+module.exports = { PROVIDERS, providerById, resolveProvider, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, chatUrl, safeJson };
