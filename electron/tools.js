@@ -906,10 +906,10 @@ async function executeToolInner(call, ctx) {
       }
       case "web_search":
         if (!String(args.query || "").trim()) return { ok: false, error: "web_search needs a non-empty 'query' string argument." };
-        return { ok: true, results: await webSearch(args.query) };
+        return { ok: true, results: await webSearch(args.query, ctx.signal) };
       case "web_fetch":
         if (!/^https?:\/\//i.test(String(args.url || ""))) return { ok: false, error: "web_fetch needs a full http(s) 'url' argument." };
-        return { ok: true, content: await webFetch(args.url) };
+        return { ok: true, content: await webFetch(args.url, ctx.signal) };
       case "generate_photo":
         return await generatePhoto(args.prompt);
       case "screenshot": {
@@ -1047,7 +1047,7 @@ async function executeToolInner(call, ctx) {
         return await ctx.agentStore.delete(args.name);
       }
       case "link_preview":
-        return await linkPreview(args.url);
+        return await linkPreview(args.url, ctx.signal);
       case "bots_list": {
         const others = (ctx.allBots || []).filter((b) => b.id !== ctx.botId);
         return {

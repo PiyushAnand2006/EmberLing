@@ -82,6 +82,18 @@ const BROWSER_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9",
 };
 
+// Node's fetch defaults to ~5-minute header/body timeouts — a bot-walled or
+// hung search endpoint used to stall a tool call for minutes before the
+// fallback endpoint was tried (and Stop couldn't cancel it). Every outbound
+// request here gets a hard cap, combined with the turn's abort signal.
+const SEARCH_TIMEOUT = 10_000;
+const FETCH_TIMEOUT = 20_000;
+const PREVIEW_TIMEOUT = 12_000;
+function reqSignal(signal, ms) {
+  const t = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, t]) : t;
+}
+
 // result links carry the target inside the uddg= redirect param; class quoting
 // varies between the lite and html endpoints (single vs double quotes)
 const LINK_RE = /<a[^>]+href="(?:https?:)?\/\/duckduckgo\.com\/l\/\?uddg=([^&"]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
@@ -92,7 +104,7 @@ const SNIPPET_RE = /<(?:td|a)[^>]*class=['"][^'"]*result(?:-snippet|__snippet)[^
  * Search the web and return up to 8 results: { title, url, snippet }.
  * @param {string} query - plain search phrase
  */
-async function webSearch(query) {
+async function webSearch(query, signal) {
   // lite endpoint first (simpler markup, lighter bot walls), html as fallback,
   // then the keyless JSON instant-answer API when the page endpoints bot-wall
   const endpoints = [
@@ -104,7 +116,7 @@ async function webSearch(query) {
     try {
       const url = new URL(ep.base);
       url.searchParams.set(ep.param, String(query));
-      const res = await fetch(url, { headers: BROWSER_HEADERS });
+      const res = await fetch(url, { headers: BROWSER_HEADERS, signal: reqSignal(signal, SEARCH_TIMEOUT) });
       if (!res.ok) throw new Error(`search HTTP ${res.status}`);
       const html = await res.text();
       const snips = [...html.matchAll(SNIPPET_RE)].map((m) => stripHtml(m[1]));
@@ -126,11 +138,13 @@ async function webSearch(query) {
       if (results.length) return results;
       lastErr = new Error("no results parsed (possible bot wall)");
     } catch (err) {
+      // a user Stop must not fall through to the next endpoint
+      if (err?.name === "AbortError") throw err;
       lastErr = err;
     }
   }
   try {
-    const jsonResults = await ddgInstantAnswers(query);
+    const jsonResults = await ddgInstantAnswers(query, signal);
     if (jsonResults.length) return jsonResults;
   } catch (err) {
     lastErr = lastErr || err;
@@ -145,13 +159,13 @@ async function webSearch(query) {
 
 // Keyless JSON API — no bot wall, but thinner coverage: the instant answer
 // abstract plus related topics, mapped to the same { title, url, snippet } shape.
-async function ddgInstantAnswers(query) {
+async function ddgInstantAnswers(query, signal) {
   const url = new URL("https://api.duckduckgo.com/");
   url.searchParams.set("q", String(query));
   url.searchParams.set("format", "json");
   url.searchParams.set("no_html", "1");
   url.searchParams.set("skip_disambig", "1");
-  const res = await fetch(url, { headers: BROWSER_HEADERS });
+  const res = await fetch(url, { headers: BROWSER_HEADERS, signal: reqSignal(signal, SEARCH_TIMEOUT) });
   if (!res.ok) throw new Error(`instant-answer API HTTP ${res.status}`);
   const json = await res.json();
   const out = [];
@@ -174,11 +188,12 @@ async function ddgInstantAnswers(query) {
  * Fetch a page and return readable text (HTML stripped, truncated).
  * @param {string} rawUrl - the page address, must be http(s)
  */
-async function webFetch(rawUrl) {
+async function webFetch(rawUrl, signal) {
   const parsed = await assertPublicHttpUrl(rawUrl);
   const res = await fetch(parsed, {
     headers: { ...BROWSER_HEADERS, Accept: "text/html,application/json,text/plain,*/*" },
     redirect: "follow",
+    signal: reqSignal(signal, FETCH_TIMEOUT),
   });
   const ct = res.headers.get("content-type") || "";
   const body = await res.text();
@@ -190,11 +205,12 @@ async function webFetch(rawUrl) {
  * Fetch a URL's public link-preview metadata (Open Graph / Twitter / <title>).
  * @param {string} rawUrl - the page address
  */
-async function linkPreview(rawUrl) {
+async function linkPreview(rawUrl, signal) {
   const parsed = await assertPublicHttpUrl(rawUrl);
   const res = await fetch(parsed, {
     headers: { ...BROWSER_HEADERS, Accept: "text/html" },
     redirect: "follow",
+    signal: reqSignal(signal, PREVIEW_TIMEOUT),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const ct = res.headers.get("content-type") || "";
