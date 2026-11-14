@@ -795,10 +795,12 @@ ipcMain.handle("media:save", async (_e, { name, dataBase64 }) => {
 ipcMain.handle("media:readText", async (_e, filePath) => {
   try {
     const stat = await fsp.stat(filePath);
-    if (stat.size > 2_000_000) return { ok: false, error: "file too large (max 2 MB)" };
-    const content = await fsp.readFile(filePath, "utf8").catch(() => null);
-    if (content === null) return { ok: false, error: "binary file — attached as reference only" };
-    return { ok: true, content: content.slice(0, 60000), name: path.basename(filePath), size: stat.size };
+    if (stat.size > 10_000_000) return { ok: false, error: "file too large (max 10 MB)" };
+    // sniff the real type and extract document text (PDF/docx/xlsx) instead of
+    // utf8-decoding binary into mojibake the model can't summarize
+    const buf = await fsp.readFile(filePath);
+    const res = await require("./doc-extract").extractDocText(buf, path.basename(filePath));
+    return { ...res, name: path.basename(filePath), size: stat.size };
   } catch (err) {
     return { ok: false, error: String(err.message) };
   }

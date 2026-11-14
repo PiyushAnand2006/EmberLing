@@ -1,7 +1,7 @@
 {
   "name": "emberling",
   "productName": "Emberling",
-  "version": "0.77.3",
+  "version": "0.78.0",
   "description": "Emberling desktop agent — rebuilt from REA findings, powered by free API providers",
   "main": "electron/main.js",
   "private": true,
@@ -85,6 +85,7 @@
     "marked": "^18.1.2",
     "mermaid": "^12.2.0",
     "nodemailer": "^7.0.9",
+    "pdf-parse": "^2.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
