@@ -113,6 +113,19 @@ async function callTool(serverName, toolName, args) {
 }
 
 // Agent-facing tool defs for every connected server's tools (mcp_<server>_<tool>)
+// A server with deep JSON-Schema input schemas can add tens of KB to EVERY
+// request. Schemas only steer the model — execution receives whatever args the
+// model emits — so oversized ones collapse to a permissive object schema.
+const MAX_SCHEMA_CHARS = 1500;
+function boundedSchema(inputSchema) {
+  const schema = inputSchema && inputSchema.type ? inputSchema : { type: "object", properties: {} };
+  try {
+    return JSON.stringify(schema).length <= MAX_SCHEMA_CHARS ? schema : { type: "object", properties: {}, additionalProperties: true };
+  } catch {
+    return { type: "object", properties: {} };
+  }
+}
+
 function agentToolDefs() {
   const defs = [];
   for (const [name, entry] of servers) {
@@ -122,7 +135,7 @@ function agentToolDefs() {
         function: {
           name: `mcp_${sanitize(name)}_${sanitize(t.name)}`,
           description: `[${name}] ${t.description}`.slice(0, 300),
-          parameters: t.inputSchema && t.inputSchema.type ? t.inputSchema : { type: "object", properties: {} },
+          parameters: boundedSchema(t.inputSchema),
         },
         _mcp: { server: name, tool: t.name },
       });

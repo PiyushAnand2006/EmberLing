@@ -9,6 +9,10 @@ const INTEG_STATUS = integTools.STATUS_BY_TOOL;
 
 const MAX_STEPS = 24;
 
+// Tools whose single string argument is mandatory — calls without it are
+// rejected instantly (no execution, no UI row) with a corrective error.
+const REQUIRED_STRING_ARGS = { web_search: "query", web_fetch: "url" };
+
 function systemPrompt(opts) {
   const today = new Date().toISOString().slice(0, 10);
   const lines = [
@@ -29,7 +33,19 @@ function systemPrompt(opts) {
   }
   if (opts?.botInstructions) lines.push(`Agent instructions from the user: ${opts.botInstructions}`);
   if (opts?.botKnowledge?.length) {
-    lines.push(`Bot knowledge files:\n${opts.botKnowledge.map((k) => `--- ${k.name} ---\n${String(k.text).slice(0, 8000)}`).join("\n")}`);
+    // shared budget instead of an uncapped per-file slice — knowledge rides on
+    // EVERY request of a tool turn, so multi-file bots were paying ~2K tokens
+    // per file per step for content the model already saw
+    let budget = 16000;
+    const parts = [];
+    for (const k of opts.botKnowledge) {
+      if (budget <= 0) break;
+      const full = String(k.text || "");
+      const text = full.slice(0, Math.min(6000, budget));
+      budget -= text.length;
+      parts.push(`--- ${k.name} ---\n${text}${text.length < full.length ? "\n[truncated]" : ""}`);
+    }
+    lines.push(`Bot knowledge files:\n${parts.join("\n\n")}`);
   }
   if (opts?.botSkills?.length) {
     lines.push(
@@ -42,7 +58,8 @@ function systemPrompt(opts) {
     lines.push(`MCP server usage instructions from the user:\n${opts.mcpInstructions}`);
   }
   if (opts?.memories?.length) {
-    lines.push(`Known memories about the user:\n${opts.memories.map((m) => `- ${m.text}`).join("\n")}`);
+    // bounded: the store grows monotonically and rode on every request in full
+    lines.push(`Known memories about the user:\n${opts.memories.slice(-40).map((m) => `- ${String(m.text || "").slice(0, 240)}`).join("\n")}`);
   }
   return lines.join("\n");
 }
@@ -243,18 +260,24 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
   let apiSeen = 0;
   let textInvalid = 0;
   let emptyReplies = 0;
+  let served = null; // which provider actually answered this turn (drives the chat's served-by note)
+  let lastFailLabel = null; // for the live failover pill
+  const fetchedUrls = new Map(); // web_fetch dedupe — one read per URL per turn
+  const searchedQueries = new Map(); // web_search dedupe — one fetch per identical query per turn
+  let consecutiveFailures = 0; // circuit breaker against retry flailing
   for (let step = 0; step < MAX_STEPS; step++) {
     events.onStatus("Working");
     let completion;
+    let servingConfig;
+    let fallbackFailures;
     try {
-      completion = await providers.withFallback(settings, async (config) => {
+      ({ result: completion, config: servingConfig, failures: fallbackFailures } = await providers.withFallback(settings, async (config) => {
         // identity must come from the config that actually answers — withFallback
         // may silently serve the turn from a fallback provider, and the model
         // would otherwise describe itself as the one in the picker
         const key = `${config.providerId}|${config.model}`;
         if (key !== identityKey && messages[0]?.role === "system") {
-          const providerName = String(providers.PROVIDERS.find((p) => p.id === config.providerId)?.name || "user-configured").replace(/\s*\(.*\)$/, "");
-          messages[0].content = systemPrompt({ botInstructions, botKnowledge, botSkills, memories, mcpInstructions, providerName, modelName: config.model });
+          messages[0].content = systemPrompt({ botInstructions, botKnowledge, botSkills, memories, mcpInstructions, providerName: config.providerLabel, modelName: config.model });
           identityKey = key;
         }
         // text-mode: provider can't take API tools — describe them in prompt instead
@@ -273,11 +296,34 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
         filter?.flush();
         result.textMode = textMode;
         return result;
-      });
+      }, {
+        // live failover: the pill shows which provider is being skipped while
+        // it happens, not only in the after-the-fact served-by note
+        onAttempt: (label, index) => {
+          if (index > 0 && lastFailLabel) events.onStatus(`${lastFailLabel} unavailable — trying ${label}…`);
+        },
+        onAttemptFail: (label) => { lastFailLabel = label; },
+      }));
       if (completion.usage) usage = completion.usage;
+      // a self-healed model id (404 retry inside streamChat) differs from the
+      // saved one — re-ground the identity line so the model never repeats a
+      // retired id it isn't actually running on
+      if (completion.model && servingConfig && completion.model !== servingConfig.model && messages[0]?.role === "system") {
+        const healedKey = `${servingConfig.providerId}|${completion.model}`;
+        if (healedKey !== identityKey) {
+          messages[0].content = systemPrompt({ botInstructions, botKnowledge, botSkills, memories, mcpInstructions, providerName: servingConfig.providerLabel, modelName: completion.model });
+          identityKey = healedKey;
+        }
+      }
+      served = {
+        provider: servingConfig?.providerLabel || servingConfig?.providerId || "",
+        model: completion.model || servingConfig?.model || "",
+        fallback: !!(fallbackFailures && fallbackFailures.length),
+        failures: fallbackFailures || [],
+      };
     } catch (err) {
       if (err?.name === "AbortError") throw err;
-      throw new Error(`Provider error: ${err.message}`);
+      throw new Error(err?.message || "Provider error");
     }
 
     if (completion.content) finalText = completion.content;
@@ -288,7 +334,7 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
     if (!completion.content && !completion.toolCalls.length) {
       emptyReplies++;
       if (emptyReplies <= 2) continue;
-      return { text: finalText || "My model provider returned an empty response — try again in a moment.", stopped: true, usage };
+      return { text: finalText || "My model provider returned an empty response — try again in a moment.", stopped: true, usage, servedBy: served };
     }
     emptyReplies = 0;
 
@@ -311,7 +357,7 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
       }
     }
     if (!pending.length) {
-      return { text: finalText || "(empty response)", usage };
+      return { text: finalText || "(empty response)", usage, servedBy: served };
     }
 
     // Some models (esp. small keyless ones) hallucinate tool calls: channel
@@ -367,25 +413,53 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
         };
       } else {
         const call = p.call;
-        events.onToolCall(call);
-        events.onStatus(INTEG_STATUS[call.name] || STATUS_BY_TOOL[call.name] || "Working");
-        try {
-          // Section-A integration tools live in their own dispatcher; local
-          // and MCP tools fall through to executeTool.
-          result = toolContext?.tryIntegrationTool ? await toolContext.tryIntegrationTool(call) : null;
-          if (result === null || result === undefined) {
-            result = await executeTool(call, {
-              signal,
-              approvalMode,
-              approve: events.onApprovalRequest,
-              ...toolContext,
-            });
+        // guard: missing required string args — an empty search/fetch only
+        // wastes a network trip and a bare ✕ row in the chat; reject instantly
+        // with a corrective error so the model resends the proper shape
+        const requiredArg = REQUIRED_STRING_ARGS[call.name];
+        const argText = requiredArg ? String(call.args?.[requiredArg] ?? "").trim() : "";
+        if (requiredArg && !argText) {
+          consecutiveFailures++;
+          result = { ok: false, error: `${call.name} needs a "${requiredArg}" string argument — resend the call with it.` };
+        } else if (call.name === "web_fetch" && fetchedUrls.has(argText.toLowerCase().replace(/\/+$/, ""))) {
+          // guard: the same URL was already read this turn — serve the cached
+          // content instead of a duplicate network round trip
+          events.onToolCall(call);
+          events.onStatus(STATUS_BY_TOOL[call.name] || "Working");
+          result = { ...fetchedUrls.get(argText.toLowerCase().replace(/\/+$/, "")), cached: true };
+          events.onToolResult(call, result);
+        } else if (call.name === "web_search" && searchedQueries.has(argText.toLowerCase())) {
+          // guard: same guard for identical queries — a flailing model re-issuing
+          // the same search gets the cached result instead of another ✕ row
+          events.onToolCall(call);
+          events.onStatus(STATUS_BY_TOOL[call.name] || "Working");
+          result = { ...searchedQueries.get(argText.toLowerCase()), cached: true };
+          events.onToolResult(call, result);
+        } else {
+          events.onToolCall(call);
+          events.onStatus(INTEG_STATUS[call.name] || STATUS_BY_TOOL[call.name] || "Working");
+          try {
+            // Section-A integration tools live in their own dispatcher; local
+            // and MCP tools fall through to executeTool.
+            result = toolContext?.tryIntegrationTool ? await toolContext.tryIntegrationTool(call) : null;
+            if (result === null || result === undefined) {
+              result = await executeTool(call, {
+                signal,
+                approvalMode,
+                approve: events.onApprovalRequest,
+                ...toolContext,
+              });
+            }
+          } catch (err) {
+            if (err?.name === "AbortError") throw err;
+            result = { ok: false, error: String(err?.message || err) };
           }
-        } catch (err) {
-          if (err?.name === "AbortError") throw err;
-          result = { ok: false, error: String(err?.message || err) };
+          if (call.name === "web_fetch" && result?.ok) fetchedUrls.set(argText.toLowerCase().replace(/\/+$/, ""), result);
+          else if (call.name === "web_search" && result?.ok) searchedQueries.set(argText.toLowerCase(), result);
+          events.onToolResult(call, result);
+          if (result?.ok === false) consecutiveFailures++;
+          else consecutiveFailures = 0;
         }
-        events.onToolResult(call, result);
       }
       if (p.mode === "api") {
         apiSeen++;
@@ -397,6 +471,14 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
         });
       }
     }
+    // circuit breaker: 3 failures in a row means the model is flailing against
+    // a rate limit or dead source — interrupt the retry loop with a steer
+    if (consecutiveFailures >= 3) {
+      consecutiveFailures = 0;
+      const note =
+        "[system] Several consecutive tool calls just failed (rate limit or unreachable source). Stop retrying the same calls — answer from the results you already have, or clearly say what could not be found.";
+      messages.push(completion.textMode ? { role: "user", content: note } : { role: "system", content: note });
+    }
     // a model stuck hallucinating malformed calls won't recover — stop early
     if ((malformed >= 3 && malformed === apiSeen) || textInvalid >= 3) {
       return {
@@ -405,11 +487,12 @@ async function runAgentTurn({ settings, history, approvalMode, botInstructions, 
           "I couldn't complete that: my model provider kept sending malformed tool calls. Try a stronger provider (add a free Groq or OpenRouter key in Settings → General) or rephrase the request.",
         stopped: true,
         usage,
+        servedBy: served,
       };
     }
     // loop again — the model continues with tool results
   }
-  return { text: finalText || "Stopped: too many tool steps.", stopped: true, usage };
+  return { text: finalText || "Stopped: too many tool steps.", stopped: true, usage, servedBy: served };
 }
 
 module.exports = { runAgentTurn, parseTextToolCall, textToolProtocol, makeToolDeltaFilter };

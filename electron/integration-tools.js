@@ -69,6 +69,32 @@ const TOOL_DEFS = [
   req(def("search_workspace", "Unified search across chats, memories, bots, automations, contacts, calendar and skills.", { query: str("search text") }), ["query"]),
 ];
 
+// Connector groups → the credential (if any) that makes their tools worth
+// sending. Unconfigured connectors would only ever answer "not connected —
+// connect it in Integrations", so shipping 20+ dead schemas on every request
+// costs tokens and TTFB for nothing. Local tools (contacts, calendar, skills,
+// search, remote_status) are always included.
+const CONNECTOR_GATES = [
+  { prefix: "gh_", ready: (g) => !!g("github", "apiToken") },
+  { prefix: "gl_", ready: (g) => !!g("gitlab", "apiToken") },
+  { prefix: "bb_", ready: (g) => !!g("bitbucket", "apiToken") },
+  { prefix: "az_", ready: (g) => !!g("azure", "apiToken") },
+  { prefix: "slack_", ready: (g) => !!g("slack", "botToken") },
+  { prefix: "teams_", ready: (g) => !!(g("teams", "accessToken") || g("teams", "refreshToken")) },
+  { prefix: "imessage_", ready: () => process.platform === "darwin" },
+  { prefix: "email_", ready: (g) => { const e = g("email"); return !!e && Object.values(e).some(Boolean); } },
+  { prefix: "op_", ready: () => true }, // op CLI presence is checked lazily by the tool itself
+];
+
+function connectedToolDefs(ctx) {
+  const g = ctx.getInteg;
+  return TOOL_DEFS.filter((d) => {
+    const name = d.function.name;
+    const gate = CONNECTOR_GATES.find((c) => name.startsWith(c.prefix));
+    return gate ? gate.ready(g) : true;
+  });
+}
+
 const STATUS_BY_TOOL = {
   gh_repos: "Listing repositories",
   gh_read_file: "Reading a repository file",
@@ -206,4 +232,4 @@ async function executeIntegrationTool(call, ctx) {
   }
 }
 
-module.exports = { TOOL_DEFS, STATUS_BY_TOOL, INTEGRATION_TOOL_NAMES, executeIntegrationTool };
+module.exports = { TOOL_DEFS, connectedToolDefs, STATUS_BY_TOOL, INTEGRATION_TOOL_NAMES, executeIntegrationTool };

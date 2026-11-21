@@ -234,23 +234,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Pollinations image generation is flaky under load (transient 5xx) and
 // throttles bursts (402/429); probe with spaced retries before giving up.
+// Sleeps are capped small because probeImage runs INSIDE the keyless slot —
+// a long ladder here parks every keyless chat behind it for minutes.
 async function probeImage(url) {
   let lastErr = null;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     try {
-      const probe = await fetch(url, { method: "GET", headers: { Range: "bytes=0-64" } });
+      const probe = await fetch(url, { method: "GET", headers: { Range: "bytes=0-64" }, signal: AbortSignal.timeout(15_000) });
       if (probe.ok || probe.status === 206) return;
       lastErr = new Error(`image endpoint HTTP ${probe.status}`);
       if (probe.status === 402 || probe.status === 429) {
         const text = await probe.text().catch(() => "");
         const wait = Number(probe.headers.get("retry-after") || (text.match(/Retry after (\d+)\s*s/i) || [])[1] || 0);
-        await sleep(Math.min(wait * 1000 + 3000, 45000));
+        await sleep(Math.min(wait * 1000 + 3000, 12_000));
         continue;
       }
     } catch (err) {
       lastErr = err;
     }
-    await sleep(2000 * (i + 1));
+    await sleep(2000);
   }
   throw lastErr || new Error("image endpoint unreachable");
 }

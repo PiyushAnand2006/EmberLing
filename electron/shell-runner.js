@@ -29,12 +29,15 @@ function validateScript(script) {
 
 /**
  * Run a shell script that the user has already approved.
- * @param {{ script: string, cwd?: string, signal?: AbortSignal }} opts
- * @returns {Promise<{ exitCode: number|null, stdout: string, stderr: string }>}
+ * @param {{ script: string, cwd?: string, signal?: AbortSignal, timeoutMs?: number }} opts
+ * @returns {Promise<{ exitCode: number|null, stdout: string, stderr: string, timedOut?: boolean, timeoutMs?: number }>}
  */
 async function runShellScript(opts) {
   const script = validateScript(opts.script);
   const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : os.homedir();
+  // a hung command otherwise parks the agent step forever — bounded by default,
+  // with accumulated output returned so the model can still see what happened
+  const timeoutMs = Math.max(1_000, Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 120_000);
   const runId = crypto.randomUUID();
   const scriptPath = IS_WINDOWS
     ? path.join(os.tmpdir(), `emberling-run-${runId}.ps1`)
@@ -54,6 +57,7 @@ async function runShellScript(opts) {
       });
       let out = "";
       let err = "";
+      let timedOut = false;
       child.stdout.on("data", (d) => {
         out += d.toString();
       });
@@ -61,11 +65,17 @@ async function runShellScript(opts) {
         err += d.toString();
       });
       child.on("error", (e) => reject(new Error(e.message)));
+      const killer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill("SIGKILL"); } catch {}
+      }, timeoutMs);
       child.on("close", (code) => {
+        clearTimeout(killer);
         resolve({
-          exitCode: code,
+          exitCode: timedOut ? -1 : code,
           stdout: out.length > 6000 ? out.slice(0, 6000) + `\n… [truncated ${out.length - 6000} chars]` : out,
           stderr: err.length > 3000 ? err.slice(0, 3000) + `\n… [truncated ${err.length - 3000} chars]` : err,
+          ...(timedOut ? { timedOut, timeoutMs } : {}),
         });
       });
     });

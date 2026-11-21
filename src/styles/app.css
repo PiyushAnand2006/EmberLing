@@ -425,6 +425,62 @@ input, textarea, select { font: inherit; color: inherit; }
   overflow: auto;
 }
 
+/* collapsed activity card: a long tool turn shows ONE summary row; the full
+   per-step list lives inside the expansion */
+.tool-activity {
+  display: block;
+  margin: 4px 0;
+  border-radius: var(--cursor-radius-lg);
+  background: var(--cursor-bg-quinary);
+  border: 1px solid var(--cursor-stroke-quaternary);
+  font-size: var(--cursor-font-size-sm);
+  color: var(--cursor-text-secondary);
+  max-width: 560px;
+}
+.tool-activity > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: inherit;
+  cursor: pointer;
+  list-style: none;
+}
+.tool-activity > summary::-webkit-details-marker { display: none; }
+.tool-activity > summary:hover { background: var(--cursor-bg-tertiary); }
+.tool-activity-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cursor-text-primary);
+  font-weight: 500;
+}
+.tool-activity-failed { color: var(--cursor-danger); opacity: 0.85; font-size: 11px; }
+.tool-activity-chevron { display: inline-flex; opacity: 0.7; transition: transform 0.15s ease; }
+.tool-activity[open] > summary .tool-activity-chevron { transform: rotate(90deg); }
+.tool-activity-list {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 8px 8px;
+  border-top: 1px solid var(--cursor-stroke-quaternary);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.tool-activity-list .tool-line {
+  background: transparent;
+  border: 0;
+  padding: 5px 6px;
+  max-width: none;
+}
+.tool-activity-list .tool-line:hover { background: var(--cursor-bg-quinary); }
+/* inside the expanded list the ✓/✕ marks are metadata, not alarms — keep them
+   quiet so a burst of failures doesn't read as a wall of red */
+.tool-activity-list .tool-status-ok,
+.tool-activity-list .tool-status-err { opacity: 0.7; font-size: 11px; }
+.tool-activity-list .tool-activity-dup { cursor: default; }
+.tool-activity-count { color: var(--cursor-text-tertiary); font-size: 11px; white-space: nowrap; }
+
 /* approval card */
 .approval-card {
   margin: 6px 0;

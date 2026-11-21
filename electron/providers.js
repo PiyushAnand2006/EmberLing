@@ -142,6 +142,26 @@ function modelsUrl(baseUrl) {
   return chatUrl(baseUrl).replace(/\/chat\/completions$/, "") + "/models";
 }
 
+// Non-OK provider responses arrive as terse JSON blobs ("HTTP 402: {"error":
+// {"message":"Add usage credits…"…}}") that read like app bugs. Translate the
+// common cases into a human sentence and keep a short raw tail for the rest.
+function friendlyHttpError(providerName, status, text) {
+  const body = String(text || "");
+  const quoted = (body.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/) || [])[1];
+  const msg = (quoted ? quoted.replace(/\\n/g, " ").trim() : "") || body.replace(/\s+/g, " ").trim().slice(0, 200);
+  const label = providerName || "the provider";
+  if (status === 402 || /usage credits|subscribe and save|payment required|insufficient.*(credits|quota)|billing/i.test(msg)) {
+    const plan = (body.match(/https?:\/\/[^\s"\\]*(?:\/plans?|\/pricing)[^\s"\\]*/i) || [])[0] || "";
+    return `${label} needs paid credits (HTTP 402 — payment required)${plan ? ` · ${plan}` : ""}. Add credits on the provider's site, or pick another provider below.`;
+  }
+  if (status === 401 || status === 403) {
+    return `${label} rejected the API key (HTTP ${status}). Check the key in Settings → General${msg ? ` — ${msg.slice(0, 140)}` : ""}.`;
+  }
+  if (status === 404) return `${label} has no endpoint/model here (HTTP 404)${msg ? `: ${msg.slice(0, 140)}` : ""}`;
+  if (status === 429) return `${label} rate limit (HTTP 429)${msg ? `: ${msg.slice(0, 140)}` : ""}`;
+  return `${label} HTTP ${status}${msg ? `: ${msg.slice(0, 200)}` : ""}`;
+}
+
 // Live model discovery: GET /models with the saved key (OpenAI-compatible
 // shape { data: [{ id }] }; tolerate { models: [{ name | id }] }).
 async function fetchModels({ providerId, apiKey, baseUrl }) {
@@ -172,12 +192,16 @@ function activeConfig(settings) {
   if (!provider) return null;
   const apiKey = creds.apiKey || (provider.keyless ? "free" : "");
   if (!apiKey) return null;
+  const savedModel = creds.model || provider.models[0]?.id || "";
   return {
     providerId: pid,
+    // user-facing label (custom providers carry the name the user typed)
+    providerLabel: String(provider.name || pid).replace(/\s*\(.*\)$/, ""),
     baseUrl: chatUrl(creds.baseUrl || provider.url),
     apiKey,
     keyless: !!provider.keyless,
-    model: creds.model || provider.models[0]?.id || "",
+    // prefer a previously self-healed model id — skips the 404 round trip
+    model: healedModels.get(healKey(pid, savedModel)) || savedModel,
     fallbackModel: provider.models[0]?.id || "",
     supportsTools: provider.supportsTools !== false,
   };
@@ -240,6 +264,41 @@ async function streamChat(opts) {
   return opts.config.keyless ? withKeylessSlot(opts.config.providerId, run) : run();
 }
 
+// Bounded provider attempts. Without these a hung endpoint stalls the step for
+// ~5 minutes (undici's defaults) before fallback even starts — the single
+// biggest "this app feels slower than other agents" cause. TTFB is generous
+// for keyless tiers (slow queues); the idle bound covers reasoning models
+// that pause mid-stream.
+const TTFB_TIMEOUT_KEYED = 20_000;
+const TTFB_TIMEOUT_KEYLESS = 30_000;
+const CHUNK_IDLE_TIMEOUT = 60_000;
+
+// Retired-model self-heal cache: when a saved model id 404s and we recover
+// with a different id, remember the pairing so later turns skip the extra
+// 404 round trip (and the identity line can use the real id from turn one).
+const healedModels = new Map();
+function healKey(providerId, savedModel) {
+  return `${providerId}|${savedModel}`;
+}
+
+// Races `promise` against a deadline. On expiry rejects with a plain Error
+// (never AbortError — that name makes withFallback rethrow and kill the turn
+// instead of moving to the next provider) and calls onTimeout so the caller
+// can abort/cancel the underlying work. The losing promise gets a silent
+// handler so its late rejection never surfaces as unhandled-rejection noise.
+function withDeadline(promise, ms, what, onTimeout) {
+  let t;
+  const deadline = new Promise((_, reject) => {
+    t = setTimeout(() => {
+      const err = new Error(`provider ${what} timed out after ${Math.round(ms / 1000)}s`);
+      try { onTimeout?.(err); } catch {}
+      reject(err);
+    }, ms);
+  });
+  promise.catch(() => {});
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(t));
+}
+
 async function streamChatOnce({ config, messages, tools, signal, onDelta, onDone }) {
   const body = {
     model: config.model,
@@ -250,10 +309,15 @@ async function streamChatOnce({ config, messages, tools, signal, onDelta, onDone
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  const doFetch = () =>
-    fetch(config.baseUrl, {
+  // one AbortController per POST so a deadline can kill a hanging connection
+  // (the turn-level `signal` alone stays untouched — Stop must keep working)
+  let attemptCtl = null;
+  const doFetch = () => {
+    attemptCtl = new AbortController();
+    const s = signal ? AbortSignal.any([signal, attemptCtl.signal]) : attemptCtl.signal;
+    return fetch(config.baseUrl, {
       method: "POST",
-      signal,
+      signal: s,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.apiKey}`,
@@ -262,15 +326,19 @@ async function streamChatOnce({ config, messages, tools, signal, onDelta, onDone
       },
       body: JSON.stringify(body),
     });
-  let res = await doFetch();
+  };
+  const ttfbMs = config.keyless ? TTFB_TIMEOUT_KEYLESS : TTFB_TIMEOUT_KEYED;
+  let res = await withDeadline(doFetch(), ttfbMs, "connection", () => attemptCtl?.abort());
   // self-heal: free providers rotate their model rosters — when a saved model
   // id disappears (404/400), retry once with the provider's default model; if
-  // OpenRouter suggests a replacement slug in the 404 body, try that too
+  // OpenRouter suggests a replacement slug in the 404 body, try that too.
+  // Recoveries are cached so later turns skip the extra round trip.
   if ((res.status === 404 || res.status === 400) && config.model !== config.fallbackModel) {
     const fallbackModel = config.fallbackModel || "";
     if (fallbackModel) {
       body.model = fallbackModel;
-      res = await doFetch();
+      res = await withDeadline(doFetch(), ttfbMs, "connection", () => attemptCtl?.abort());
+      if (res.ok) healedModels.set(healKey(config.providerId, config.model), body.model);
     }
   }
   if (res.status === 404) {
@@ -278,51 +346,71 @@ async function streamChatOnce({ config, messages, tools, signal, onDelta, onDone
     const suggested = (text.match(/use this slug instead:\s*([^\s"\\]+)/i) || [])[1];
     if (suggested && suggested !== body.model) {
       body.model = suggested;
-      res = await doFetch();
+      res = await withDeadline(doFetch(), ttfbMs, "connection", () => attemptCtl?.abort());
+      if (res.ok) healedModels.set(healKey(config.providerId, config.model), body.model);
     }
   }
   // keyless free tiers throttle to ~1 reply per 30s — wait out the stated
-  // backoff and retry once so multi-step tool turns can complete
+  // backoff and retry once so multi-step tool turns can complete. A 402 with
+  // no "Retry after" is a real paywall (e.g. ollama.com credits); keyed
+  // providers always treat 402 as a paywall — fail over at once.
   if (res.status === 402) {
     const text = await res.text().catch(() => "");
     const wait = Number((text.match(/Retry after (\d+)\s*s/i) || [])[1] || 0);
-    if (!wait || wait > 90) throw new Error(`${config.providerId} HTTP 402: ${text.slice(0, 400)}`);
+    const throttled = config.keyless && wait && wait <= 30;
+    if (!throttled) throw new Error(friendlyHttpError(config.providerLabel || config.providerId, 402, text));
     await sleepWithSignal((wait + 2) * 1000, signal);
-    res = await doFetch();
+    res = await withDeadline(doFetch(), ttfbMs, "connection", () => attemptCtl?.abort());
   }
   // "previous request is still running" (RATE_LIMITED): the prior generation
   // hasn't fully unwound server-side yet (stop, edit-and-resend, overlapping
-  // chats) — Classic keeps working on it after our connection closes, so wait
-  // it out with a longer ladder before failing over
+  // chats) — keyless tiers keep working on it after our connection closes, so
+  // wait out a ladder there. Keyed providers get one quick retry, then fail
+  // over — their 429s are quota/rate limits, not transient queue state.
   if (res.status === 429) {
     const text = await res.text().catch(() => "");
-    if (/RATE_LIMITED|still running|per IP/i.test(text)) {
+    if (config.keyless && /RATE_LIMITED|still running|per IP/i.test(text)) {
       for (const waitMs of [5000, 15000, 30000]) {
         await sleepWithSignal(waitMs, signal);
-        res = await doFetch();
+        res = await withDeadline(doFetch(), ttfbMs, "connection", () => attemptCtl?.abort());
         if (res.status !== 429) break;
       }
       if (res.status === 429) {
         const again = await res.text().catch(() => "");
-        throw new Error(`${config.providerId} HTTP 429: ${again.slice(0, 300)}`);
+        throw new Error(friendlyHttpError(config.providerLabel || config.providerId, 429, again));
+      }
+    } else if (!config.keyless) {
+      await sleepWithSignal(1500, signal);
+      res = await withDeadline(doFetch(), ttfbMs, "connection", () => attemptCtl?.abort());
+      if (res.status === 429) {
+        const again = await res.text().catch(() => "");
+        throw new Error(friendlyHttpError(config.providerLabel || config.providerId, 429, again));
       }
     } else {
-      throw new Error(`${config.providerId} HTTP 429: ${text.slice(0, 400)}`);
+      throw new Error(friendlyHttpError(config.providerLabel || config.providerId, 429, text));
     }
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${config.providerId} HTTP ${res.status}: ${text.slice(0, 400)}`);
+    throw new Error(friendlyHttpError(config.providerLabel || config.providerId, res.status, text));
   }
 
-  const final = { content: "", toolCalls: [], finishReason: null, usage: null };
+  const final = { content: "", toolCalls: [], finishReason: null, usage: null, model: body.model };
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   const partialById = new Map();
 
   while (true) {
-    const { done, value } = await reader.read();
+    // idle bound: a stream that opens but then goes silent (crashed gateway,
+    // stalled reasoning run) must not park the turn forever — cancel the body
+    // so the socket frees and let the error drive failover
+    const { done, value } = await withDeadline(
+      reader.read(),
+      CHUNK_IDLE_TIMEOUT,
+      "stream idle",
+      () => res.body.cancel().catch(() => {})
+    );
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     let idx;
@@ -404,25 +492,36 @@ function jsonRepairCandidates(s) {
   return out;
 }
 
-// Multi-provider attempt with fallback. `attempt(i, config)` does the real call.
-async function withFallback(settings, fn) {
+// Multi-provider attempt with fallback. `attempt(i, config)` does the real
+// call. Resolves with { result, config, failures } so the caller can tell the
+// user WHICH provider actually served the turn (a silent swap reads as the
+// model hallucinating its own identity) and which providers were skipped.
+// opts.onAttempt(label, index, total) / opts.onAttemptFail(label, message)
+// let the UI show failover progress live instead of a frozen "Working" pill.
+async function withFallback(settings, fn, opts = {}) {
   const configs = orderedConfigs(settings);
   if (!configs.length) {
     throw new Error(
       "No API provider configured. Open Settings → General, add a free API key (Groq, OpenRouter, Google Gemini, Cerebras or Mistral), then try again."
     );
   }
-  let lastErr = null;
-  for (const config of configs) {
+  const failures = [];
+  for (let i = 0; i < configs.length; i++) {
+    const config = configs[i];
+    opts?.onAttempt?.(config.providerLabel || config.providerId, i, configs.length);
     try {
-      return await fn(config, configs.indexOf(config));
+      const result = await fn(config, i);
+      return { result, config, failures };
     } catch (err) {
       if (err?.name === "AbortError") throw err;
-      lastErr = err;
+      failures.push({ providerId: config.providerId, providerLabel: config.providerLabel || config.providerId, message: String(err?.message || err) });
+      opts?.onAttemptFail?.(config.providerLabel || config.providerId, String(err?.message || err));
       console.warn(`provider ${config.providerId} failed:`, err.message);
     }
   }
-  throw lastErr || new Error("All providers failed");
+  const lastErr = new Error(failures[failures.length - 1]?.message || "All providers failed");
+  lastErr.failures = failures;
+  throw lastErr;
 }
 
 async function transcribe({ settings, filePath, mimeType }) {
@@ -455,4 +554,4 @@ async function transcribeWith(url, key, model, filePath, mimeType) {
   return json.text || "";
 }
 
-module.exports = { PROVIDERS, providerById, resolveProvider, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, chatUrl, safeJson };
+module.exports = { PROVIDERS, providerById, resolveProvider, activeConfig, orderedConfigs, streamChat, withFallback, withKeylessSlot, transcribe, fetchModels, modelsUrl, chatUrl, friendlyHttpError, safeJson };

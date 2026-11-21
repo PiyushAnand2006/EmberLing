@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { Conversation, Bot, Memory, Automation, Settings, IntegrationState, ProviderInfo } from "./types";
 import { setThemeMode } from "./theme";
 
@@ -134,10 +134,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // persist on change after initial load
+  // persist conversations on a trailing timer — streaming fires dozens of state
+  // updates per second, and a whole-DB write per delta stole renderer CPU
+  // (structured clone + IPC) and main-thread disk time mid-stream. Coalesce to
+  // ~1s after the last change; flush on unload so nothing is lost on quit.
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
   useEffect(() => {
-    if (loaded) window.emberling.store.set("conversations", conversations);
+    if (!loaded) return;
+    const t = setTimeout(() => window.emberling.store.set("conversations", conversationsRef.current), 1000);
+    return () => clearTimeout(t);
   }, [conversations, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    const flush = () => window.emberling.store.set("conversations", conversationsRef.current);
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, [loaded]);
   useEffect(() => {
     if (loaded) window.emberling.store.set("bots", bots);
   }, [bots, loaded]);

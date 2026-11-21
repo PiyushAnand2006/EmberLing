@@ -94,7 +94,18 @@ async function listDistros() {
     .filter((s) => s && DISTRO_RE.test(s));
 }
 
+// A healthy probe runs wsl --list + a boot echo on EVERY sandboxed tool call
+// (1-3s each, worst ~50s) for a result that can't change within a session —
+// cache it; only non-ready results re-probe (WSL may finish installing later).
+let readyProbe = null;
 async function probe() {
+  if (readyProbe) return readyProbe;
+  const result = await probeOnce();
+  if (result.state === "ready") readyProbe = result;
+  return result;
+}
+
+async function probeOnce() {
   if (!wslAvailable()) {
     return { state: "missing-wsl", distros: [], distro: null, hint: "WSL is not installed on this PC." };
   }

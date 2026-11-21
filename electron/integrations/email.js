@@ -19,6 +19,10 @@ function smtpConfig(cfg) {
     port: Number(cfg.smtpPort) || 587,
     secure: cfg.smtpSecure === true || Number(cfg.smtpPort) === 465,
     auth: { user: cfg.user, pass: cfg.password },
+    // bounded sockets: a dead mail server otherwise parks the agent step
+    connectionTimeout: 30_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 60_000,
   };
 }
 
@@ -31,7 +35,7 @@ async function send(cfg, { to, subject, body, cc }) {
 
 async function search(cfg, { query, mailbox, limit }) {
   ensureDeps();
-  const client = new ImapFlow({ host: cfg.imapHost, port: Number(cfg.imapPort) || 993, secure: true, auth: { user: cfg.user, pass: cfg.password }, logger: false });
+  const client = new ImapFlow({ host: cfg.imapHost, port: Number(cfg.imapPort) || 993, secure: true, auth: { user: cfg.user, pass: cfg.password }, logger: false, connectionTimeout: 30_000, socketTimeout: 60_000 });
   await client.connect();
   try {
     const lock = await client.getMailboxLock(String(mailbox || "INBOX"));
@@ -58,7 +62,7 @@ async function search(cfg, { query, mailbox, limit }) {
 
 async function read(cfg, { mailbox, uid }) {
   ensureDeps();
-  const client = new ImapFlow({ host: cfg.imapHost, port: Number(cfg.imapPort) || 993, secure: true, auth: { user: cfg.user, pass: cfg.password }, logger: false });
+  const client = new ImapFlow({ host: cfg.imapHost, port: Number(cfg.imapPort) || 993, secure: true, auth: { user: cfg.user, pass: cfg.password }, logger: false, connectionTimeout: 30_000, socketTimeout: 60_000 });
   await client.connect();
   try {
     const lock = await client.getMailboxLock(String(mailbox || "INBOX"));

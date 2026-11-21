@@ -2,10 +2,13 @@
 // a free Slack app the user creates. Covers messaging, reactions, channels,
 // history, and search — the same surface the original wakes automations on.
 const API = "https://slack.com/api";
+// a hung API call otherwise parks the agent step for ~5 minutes
+const API_TIMEOUT = 30_000;
 
 async function call(token, method, body) {
   const res = await fetch(`${API}/${method}`, {
     method: "POST",
+    signal: AbortSignal.timeout(API_TIMEOUT),
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify(body || {}),
   });

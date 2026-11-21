@@ -863,7 +863,17 @@ async function executeToolInner(call, ctx) {
           const res = await runRemoteScript({ ...remote, script, cwd: args.cwd });
           return { ok: true, ...res };
         }
-        return await runShellScript({ script, cwd: args.cwd, signal });
+        const res = await runShellScript({ script, cwd: args.cwd, signal, timeoutMs: Number(args.timeout) > 0 ? Number(args.timeout) * 1000 : undefined });
+        if (res.timedOut) {
+          return {
+            ok: false,
+            exitCode: res.exitCode,
+            stdout: res.stdout,
+            stderr: res.stderr,
+            error: `Command was stopped after ${Math.round((res.timeoutMs || 120000) / 1000)}s (timeout) — partial output above; continue with a narrower command if needed.`,
+          };
+        }
+        return { ok: true, ...res };
       }
       case "read_file": {
         const remote = ctx.getRemote?.();
@@ -875,8 +885,12 @@ async function executeToolInner(call, ctx) {
         return { ok: true, content: truncate(content, 20000) };
       }
       case "write_file": {
-        const ok = await ctx.approve({ tool: name, title: "Write a file", detail: `${args.path}\n(${(args.content || "").length} bytes)`, kind: "write" });
-        if (!ok) return { ok: false, error: "User declined this file write." };
+        // approval only gates "ask" mode — like run_command, auto/askRisky
+        // modes must not stall every write behind a human click
+        if (ctx.approvalMode === "ask") {
+          const ok = await ctx.approve({ tool: name, title: "Write a file", detail: `${args.path}\n(${(args.content || "").length} bytes)`, kind: "write" });
+          if (!ok) return { ok: false, error: "User declined this file write." };
+        }
         const remote = ctx.getRemote?.();
         if (remote?.enabled) {
           const heredoc = `cat > ${JSON.stringify(String(args.path))} << 'EMBERLING_EOF'\n${String(args.content ?? "")}\nEMBERLING_EOF\n`;
@@ -888,8 +902,10 @@ async function executeToolInner(call, ctx) {
         return { ok: true, wrote: args.path };
       }
       case "edit_file": {
-        const ok = await ctx.approve({ tool: name, title: "Edit a file", detail: args.path, kind: "edit" });
-        if (!ok) return { ok: false, error: "User declined this file edit." };
+        if (ctx.approvalMode === "ask") {
+          const ok = await ctx.approve({ tool: name, title: "Edit a file", detail: args.path, kind: "edit" });
+          if (!ok) return { ok: false, error: "User declined this file edit." };
+        }
         const original = await fsp.readFile(args.path, "utf8");
         if (!original.includes(args.old_text)) return { ok: false, error: "old_text not found in file" };
         const next = original.replace(args.old_text, args.new_text ?? "");

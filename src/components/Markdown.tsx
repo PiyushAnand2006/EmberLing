@@ -7,16 +7,24 @@ import "katex/dist/katex.min.css";
 import { IconCopy } from "./Icons";
 import { onThemeChange, resolvedTheme, type ResolvedTheme } from "../theme";
 
-function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
+// Rich interactive blocks are expensive to mount (mermaid render, iframe,
+// cytoscape, WebGL) and their fence content mutates on every streamed chunk —
+// while a message is still streaming, render them as plain code and mount the
+// real component once the fence is complete.
+const RICH_LANGS = new Set(["mermaid", "html", "preview", "chart", "graph", "three", "clip"]);
+
+function CodeBlock({ children, className, streaming }: { children: React.ReactNode; className?: string; streaming?: boolean }) {
   const [copied, setCopied] = useState(false);
   const text = extractText(children);
   const lang = (className || "").replace("language-", "").trim().toLowerCase();
-  if (lang === "mermaid") return <Mermaid code={text} />;
-  if (lang === "html" || lang === "preview") return <HtmlPreview code={text} />;
-  if (lang === "chart") return <Chart code={text} />;
-  if (lang === "graph") return <GraphBlock code={text} />;
-  if (lang === "three") return <ThreeBlock code={text} />;
-  if (lang === "clip") return <ClipPlayer code={text} />;
+  if (!streaming && RICH_LANGS.has(lang)) {
+    if (lang === "mermaid") return <Mermaid code={text} />;
+    if (lang === "html" || lang === "preview") return <HtmlPreview code={text} />;
+    if (lang === "chart") return <Chart code={text} />;
+    if (lang === "graph") return <GraphBlock code={text} />;
+    if (lang === "three") return <ThreeBlock code={text} />;
+    if (lang === "clip") return <ClipPlayer code={text} />;
+  }
   return (
     <div className="code-block">
       <button
@@ -392,14 +400,16 @@ function extractText(node: React.ReactNode): string {
   return "";
 }
 
-export function Markdown({ content }: { content: string }) {
+// memoized: during streaming only the one bubble whose content changed should
+// re-parse markdown; sibling bubbles keep their identity and skip re-render
+export const Markdown = React.memo(function Markdown({ content, streaming }: { content: string; streaming?: boolean }) {
   return (
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={{
-          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+          pre: ({ children }) => <CodeBlock streaming={streaming}>{children}</CodeBlock>,
           img: ({ src, alt }) => <img src={String(src || "")} alt={alt || ""} loading="lazy" style={{ maxWidth: "100%", borderRadius: 8 }} />,
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noreferrer noopener">
@@ -412,4 +422,4 @@ export function Markdown({ content }: { content: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

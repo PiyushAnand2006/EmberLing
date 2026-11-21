@@ -184,7 +184,7 @@ function useAgentOrchestration() {
                   ...c,
                   messages: [
                     ...c.messages.map((m) => (m.pending && m.role === "assistant" ? { ...m, pending: false, status: undefined } : m)),
-                    { id: uid(), role: "assistant", content: "", ts: Date.now(), pending: true, status: "Working", botLabel: `${payload.emoji || "🤖"} ${payload.name || "Bot"}` },
+                    { id: uid(), role: "assistant", content: "", ts: Date.now(), pending: true, status: "Working", startedAt: Date.now(), botLabel: `${payload.emoji || "🤖"} ${payload.name || "Bot"}` },
                   ],
                 }
               : c
@@ -208,6 +208,7 @@ function useAgentOrchestration() {
                           pending: false,
                           status: undefined,
                           error: payload.error,
+                          servedBy: payload.servedBy,
                           content: m.content || payload.text || (payload.stopped ? "_Stopped._" : ""),
                         }
                       : m
@@ -227,18 +228,22 @@ function useAgentOrchestration() {
   settingsRef.current = settings;
 
   const buildHistory = useCallback((conv: Conversation): { role: string; content: string }[] => {
-    return conv.messages
-      .filter((m) => !m.error)
-      .slice(-30)
-      .map((m) => {
-        let content = m.content || "";
-        if (m.voice?.transcript) content = `${content}\n(voice transcript: ${m.voice.transcript})`.trim();
-        for (const a of m.attachments || []) {
-          if (a.text) content += `\n\n[Attached file: ${a.name}]\n${a.text}`;
-          else content += `\n\n[Attached file: ${a.name}]`;
+    const windowMsgs = conv.messages.filter((m) => !m.error).slice(-30);
+    return windowMsgs.map((m, i) => {
+      let content = m.content || "";
+      if (m.voice?.transcript) content = `${content}\n(voice transcript: ${m.voice.transcript})`.trim();
+      for (const a of m.attachments || []) {
+        // full extracted text only for recent messages — re-uploading a 12K-char
+        // document on every turn adds seconds of TTFB for information the model
+        // already saw; older attachments ride as short stubs
+        if (a.text && i >= windowMsgs.length - 3) {
+          content += `\n\n[Attached file: ${a.name}]\n${a.text}`;
+        } else {
+          content += `\n\n[Attached file: ${a.name}${a.text ? ` — extracted text previously provided: ${a.text.slice(0, 200)}` : ""}]`;
         }
-        return { role: m.role, content };
-      });
+      }
+      return { role: m.role, content };
+    });
   }, []);
 
   const send = useCallback(
@@ -268,7 +273,7 @@ function useAgentOrchestration() {
       // rooms: main sends member-start per member — no pre-made bubble here,
       // each member Bot gets its own labeled pending bubble from the event
       const isRoom = roomBots.length > 0;
-      const assistantMsg: Message = { id: uid(), role: "assistant", content: "", ts: Date.now(), pending: true, status: "Working" };
+      const assistantMsg: Message = { id: uid(), role: "assistant", content: "", ts: Date.now(), pending: true, status: "Working", startedAt: Date.now() };
 
       if (opts?.editMessageId) {
         // message edit with revision history: replace in place, rerun from there

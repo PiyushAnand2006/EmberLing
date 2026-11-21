@@ -1,9 +1,13 @@
 // Repository connectors — GitHub, GitLab, Bitbucket, Azure DevOps via their
 // public REST APIs with user-created personal access tokens (free). The
 // agent gets read/write/issues/PR tools against the configured provider.
+// Bounded: a hung API call otherwise parks the agent step for ~5 minutes.
+const API_TIMEOUT = 30_000;
+
 async function ghFetch(token, path, init) {
   const res = await fetch(`https://api.github.com${path}`, {
     ...init,
+    signal: init?.signal || AbortSignal.timeout(API_TIMEOUT),
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
@@ -26,6 +30,7 @@ async function ghFetch(token, path, init) {
 async function gitlabFetch(token, path, init) {
   const res = await fetch(`https://gitlab.com/api/v4${path}`, {
     ...init,
+    signal: init?.signal || AbortSignal.timeout(API_TIMEOUT),
     headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const text = await res.text();
@@ -42,6 +47,7 @@ async function gitlabFetch(token, path, init) {
 async function bbFetch(token, path, init) {
   const res = await fetch(`https://api.bitbucket.org/2.0${path}`, {
     ...init,
+    signal: init?.signal || AbortSignal.timeout(API_TIMEOUT),
     headers: { Authorization: `Basic ${Buffer.from(token).toString("base64")}`, "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const text = await res.text();
@@ -59,6 +65,7 @@ async function azureFetch(token, org, project, path, init) {
   const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project || "_apis/projects")}${path}`;
   const res = await fetch(url, {
     ...init,
+    signal: init?.signal || AbortSignal.timeout(API_TIMEOUT),
     headers: { Authorization: `Basic ${Buffer.from(`:${token}`).toString("base64")}`, "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const text = await res.text();

@@ -45,7 +45,9 @@ function toolIcon(name: string) {
   return <IconFile size={13} />;
 }
 
-function ToolLine({ tool }: { tool: ToolRecord }) {
+// row preview: the query/URL/command when present, otherwise a short reason —
+// a failed call with no args must not render as an unexplained blank row
+function toolPreview(tool: ToolRecord): string {
   const args = tool.args as Record<string, unknown> | undefined;
   const argPreview =
     args && typeof args === "object"
@@ -54,6 +56,12 @@ function ToolLine({ tool }: { tool: ToolRecord }) {
           .join(" ")
           .slice(0, 90) || Object.keys(args).join(", ")
       : "";
+  if (argPreview) return argPreview;
+  const err = tool.result && typeof tool.result === "object" ? (tool.result as Record<string, unknown>).error : undefined;
+  return typeof err === "string" && err.trim() ? err.trim().slice(0, 90) : "";
+}
+
+function ToolLine({ tool }: { tool: ToolRecord }) {
   const ok = tool.status === "ok";
   const err = tool.status === "error";
   const detail = tool.result != null ? JSON.stringify(tool.result, null, 2).slice(0, 2400) : "";
@@ -62,13 +70,88 @@ function ToolLine({ tool }: { tool: ToolRecord }) {
       <summary>
         {toolIcon(tool.name)}
         <span className="tool-name">{tool.name}</span>
-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{argPreview}</span>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toolPreview(tool)}</span>
         {tool.status === "running" && <span style={{ color: "var(--cursor-text-tertiary)" }}>…</span>}
         {ok && <span className="tool-status-ok">✓</span>}
         {err && <span className="tool-status-err">✕</span>}
         <IconChevronRight size={12} />
       </summary>
       {detail && <pre>{detail}</pre>}
+    </details>
+  );
+}
+
+// A research turn can accumulate dozens of tool calls; one bordered row each
+// buries the reply under a wall of ✓/✕. More than 3 calls collapse into a
+// single summary card ("14 searches · 6 pages read · 2 failed") that expands
+// to the full per-step list — the activity-card pattern used by the agent UIs
+// this app mirrors. Small turns (one command, one lookup) stay as raw rows.
+const TOOL_KIND_LABELS: Record<string, string> = { web_search: "searches", web_fetch: "pages read", run_command: "commands" };
+function toolActivityIcon(names: string[]) {
+  if (names.length && names.every((n) => n === "run_command")) return <IconTerminal size={13} />;
+  if (names.some((n) => n === "web_search" || n === "web_fetch")) return <IconGlobe size={13} />;
+  if (names.some((n) => n === "generate_photo" || n === "screenshot")) return <IconImage size={13} />;
+  return <IconFile size={13} />;
+}
+
+// a flailing model re-issues identical calls — show each distinct attempt
+// once with a ×N instead of stacking half a dozen identical ✕ rows
+function dedupeToolRows(tools: ToolRecord[]): { tool: ToolRecord; count: number }[] {
+  const out: { tool: ToolRecord; count: number }[] = [];
+  const seen = new Map<string, number>();
+  for (const t of tools) {
+    let key: string;
+    try {
+      key = `${t.name}|${JSON.stringify(t.args)}|${t.status}`;
+    } catch {
+      key = `${t.name}|${String(t.args)}|${t.status}`;
+    }
+    const idx = seen.get(key);
+    if (idx != null) {
+      out[idx].count++;
+      continue;
+    }
+    seen.set(key, out.length);
+    out.push({ tool: t, count: 1 });
+  }
+  return out;
+}
+
+function ToolDupRow({ tool, count }: { tool: ToolRecord; count: number }) {
+  return (
+    <div className="tool-line tool-activity-dup">
+      {toolIcon(tool.name)}
+      <span className="tool-name">{tool.name}</span>
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toolPreview(tool)}</span>
+      <span className="tool-activity-count">×{count}{tool.status === "error" ? "" : " cached"}</span>
+      <span className={tool.status === "error" ? "tool-status-err" : "tool-status-ok"}>{tool.status === "error" ? "✕" : "✓"}</span>
+    </div>
+  );
+}
+function ToolActivity({ tools }: { tools: ToolRecord[] }) {
+  if (tools.length <= 3) return <>{tools.map((t) => <ToolLine key={t.id} tool={t} />)}</>;
+  const counts = new Map<string, number>();
+  for (const t of tools) counts.set(t.name, (counts.get(t.name) || 0) + 1);
+  const summary = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, n]) => `${n} ${TOOL_KIND_LABELS[name] || "steps"}`)
+    .join(" · ");
+  const failed = tools.filter((t) => t.status === "error").length;
+  const anyRunning = tools.some((t) => t.status === "running");
+  return (
+    <details className="tool-activity">
+      <summary>
+        {toolActivityIcon(tools.map((t) => t.name))}
+        <span className="tool-activity-title">{summary}</span>
+        {anyRunning && <AgentDots size={14} />}
+        {failed > 0 && <span className="tool-activity-failed">{failed} failed</span>}
+        <span className="tool-activity-chevron"><IconChevronRight size={12} /></span>
+      </summary>
+      <div className="tool-activity-list">
+        {dedupeToolRows(tools).map(({ tool, count }) =>
+          count > 1 ? <ToolDupRow key={tool.id} tool={tool} count={count} /> : <ToolLine key={tool.id} tool={tool} />
+        )}
+      </div>
     </details>
   );
 }
@@ -208,47 +291,107 @@ function VoiceView({ msg }: { msg: Message }) {
   );
 }
 
-export function MessageBubble({ msg, bubbleColor, onReact, onRetry, onEdit }: { msg: Message; bubbleColor: string; onReact: (emoji: string) => void; onRetry: () => void; onEdit?: () => void }) {
-  const [reactOpen, setReactOpen] = useState(false);
-  const fill = BUBBLE_COLORS.find((c) => c.id === bubbleColor)?.css || "var(--sand-fill-bubble-user)";
+// trailing throttle: streaming deltas arrive faster than the eye can read —
+// re-render markdown on a ~60ms cadence instead of once per chunk
+function useThrottled<T>(value: T, ms: number): T {
+  const [snap, setSnap] = useState(value);
+  const lastRef = useRef(0);
+  const timerRef = useRef<number | null>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  useEffect(() => {
+    const tick = () => {
+      lastRef.current = Date.now();
+      setSnap(valueRef.current);
+      timerRef.current = null;
+    };
+    const elapsed = Date.now() - lastRef.current;
+    if (elapsed >= ms) {
+      tick();
+      return;
+    }
+    if (timerRef.current == null) timerRef.current = window.setTimeout(tick, ms - elapsed);
+  }, [value, ms]);
+  useEffect(() => () => { if (timerRef.current != null) window.clearTimeout(timerRef.current); }, []);
+  return snap;
+}
+
+// live "how long has it been working" readout — a silent pill reads as a hung
+// app; a ticking counter reads as a busy one
+function ElapsedPill({ since, status }: { since?: number; status: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const secs = since ? Math.max(0, Math.round((now - since) / 1000)) : 0;
   return (
-    <>
-      {msg.tools?.map((t) => <ToolLine key={t.id} tool={t} />)}
-      {msg.approval && <ApprovalCard msg={msg} approval={msg.approval} onResolve={msg.onApprovalResolved || (() => {})} />}
-      {msg.form && <FormCard msg={msg} />}
-      <div className={`msg-row ${msg.role}`}>
-        {msg.role === "assistant" && msg.botLabel ? <div className="bot-label">{msg.botLabel}</div> : null}
-        <div
-          className={`bubble ${msg.role}${msg.pending ? " pending" : ""}${msg.error ? " error" : ""}`}
-          style={msg.role === "user" ? ({ "--bubble-user-fill": fill } as React.CSSProperties) : undefined}
-        >
-          {msg.voice ? <VoiceView msg={msg} /> : null}
-          {msg.attachments?.map((a) => (
-            <AttachmentView key={a.id} att={a} />
-          ))}
-          {msg.content ? (
-            <>
-              <Markdown content={msg.content} />
-              {msg.edited && <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>(edited)</div>}
-            </>
-          ) : msg.pending && !msg.tools?.length ? (
-            <span className="typing-dots">
-              <span />
-              <span />
-              <span />
-            </span>
-          ) : null}
-          {msg.error && <div style={{ fontSize: 12, marginTop: 6 }}>{msg.error}</div>}
-          {msg.reactions?.length ? (
-            <div className="reactions">
-              {msg.reactions.map((r) => (
-                <button key={r.emoji} className={`reaction-chip${r.mine ? " mine" : ""}`} onClick={() => onReact(r.emoji)}>
-                  {r.emoji}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+    <div className="status-pill" style={{ alignSelf: "flex-start", marginLeft: 4 }}>
+      <AgentDots size={16} />
+      {status}
+      {secs > 2 && <span style={{ opacity: 0.6 }}> · {secs}s</span>}
+    </div>
+  );
+}
+
+const MessageBubble = React.memo(
+  function MessageBubble({ msg, msgIndex, bubbleColor, onSendRetry }: { msg: Message; msgIndex: number; bubbleColor: string; onSendRetry: (msgIndex: number) => void }) {
+    const [reactOpen, setReactOpen] = useState(false);
+    const fill = BUBBLE_COLORS.find((c) => c.id === bubbleColor)?.css || "var(--sand-fill-bubble-user)";
+    const streamed = useThrottled(msg.content, 60);
+    const content = msg.pending ? streamed : msg.content;
+    return (
+      <>
+        {msg.tools?.length ? <ToolActivity tools={msg.tools} /> : null}
+        {msg.approval && <ApprovalCard msg={msg} approval={msg.approval} onResolve={msg.onApprovalResolved || (() => {})} />}
+        {msg.form && <FormCard msg={msg} />}
+        <div className={`msg-row ${msg.role}`}>
+          {msg.role === "assistant" && msg.botLabel ? <div className="bot-label">{msg.botLabel}</div> : null}
+          <div
+            className={`bubble ${msg.role}${msg.pending ? " pending" : ""}${msg.error ? " error" : ""}`}
+            style={msg.role === "user" ? ({ "--bubble-user-fill": fill } as React.CSSProperties) : undefined}
+          >
+            {msg.voice ? <VoiceView msg={msg} /> : null}
+            {msg.attachments?.map((a) => (
+              <AttachmentView key={a.id} att={a} />
+            ))}
+            {content ? (
+              <>
+                <Markdown content={content} streaming={!!msg.pending} />
+                {msg.edited && <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>(edited)</div>}
+              </>
+            ) : msg.pending && !msg.tools?.length ? (
+              <span className="typing-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+            ) : null}
+            {msg.error && <div style={{ fontSize: 12, marginTop: 6 }}>{msg.error}</div>}
+            {msg.servedBy?.fallback && (
+              <div
+                className="served-by-note"
+                title={(msg.servedBy.failures || []).map((f) => `${f.providerLabel || f.providerId}: ${f.message}`).join("\n")}
+                style={{ fontSize: 11, marginTop: 6, opacity: 0.75 }}
+              >
+                ⚠ {(msg.servedBy.failures || []).map((f) => f.providerLabel || f.providerId).join(", ")} unavailable — answered via{" "}
+                {msg.servedBy.provider} · {msg.servedBy.model}
+              </div>
+            )}
+            {msg.reactions?.length ? (
+              <div className="reactions">
+                {msg.reactions.map((r) => (
+                  <button
+                    key={r.emoji}
+                    className={`reaction-chip${r.mine ? " mine" : ""}`}
+                    onClick={() => window.dispatchEvent(new CustomEvent("emberling:react", { detail: { messageId: msg.id, emoji: r.emoji } }))}
+                  >
+                    {r.emoji}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         <div className="msg-actions">
           <span style={{ position: "relative" }}>
             <button className="icon-btn" title="React" onClick={() => setReactOpen((v) => !v)}>
@@ -263,7 +406,7 @@ export function MessageBubble({ msg, bubbleColor, onReact, onRetry, onEdit }: { 
                     style={{ padding: "4px 6px", fontSize: 16 }}
                     onClick={() => {
                       setReactOpen(false);
-                      onReact(e);
+                      window.dispatchEvent(new CustomEvent("emberling:react", { detail: { messageId: msg.id, emoji: e } }));
                     }}
                   >
                     {e}
@@ -280,26 +423,30 @@ export function MessageBubble({ msg, bubbleColor, onReact, onRetry, onEdit }: { 
             <IconCopy size={14} />
           </button>
           {msg.role === "assistant" && !msg.pending && (
-            <button className="icon-btn" title="Ask Emberling to try again" onClick={onRetry}>
+            <button className="icon-btn" title="Ask Emberling to try again" onClick={() => onSendRetry(msgIndex)}>
               <IconRefresh size={14} />
             </button>
           )}
-          {msg.role === "user" && !msg.pending && onEdit && (
-            <button className="icon-btn" title="Edit message" onClick={onEdit}>
+          {msg.role === "user" && !msg.pending && (
+            <button
+              className="icon-btn"
+              title="Edit message"
+              onClick={() => window.dispatchEvent(new CustomEvent("emberling:edit", { detail: { messageId: msg.id } }))}
+            >
               ✎
             </button>
           )}
         </div>
       </div>
-      {msg.status && msg.pending && (
-        <div className="status-pill" style={{ alignSelf: "flex-start", marginLeft: 4 }}>
-          <AgentDots size={16} />
-          {msg.status}
-        </div>
-      )}
+      {msg.status && msg.pending && <ElapsedPill since={msg.startedAt} status={msg.status} />}
     </>
-  );
-}
+    );
+  },
+  // skip re-render unless THIS message changed — sibling bubbles keep their
+  // object identity through stream updates; handlers are built from
+  // (msg.id, msgIndex) inside, so ignoring their identity is safe
+  (prev, next) => prev.msg === next.msg && prev.bubbleColor === next.bubbleColor && prev.msgIndex === next.msgIndex
+);
 
 export function ChatView({ conversation, onSendRetry }: { conversation: Conversation | null; onSendRetry: (msgIndex: number) => void }) {
   const { settings, bots, toast } = useApp();
@@ -346,17 +493,7 @@ export function ChatView({ conversation, onSendRetry }: { conversation: Conversa
         </div>
       )}
       {conversation.messages.map((m, i) => (
-        <MessageBubble
-          key={m.id}
-          msg={m}
-          bubbleColor={settings.bubbleColor}
-          onReact={(emoji) => {
-            // handled by parent through a custom event to keep props light
-            window.dispatchEvent(new CustomEvent("emberling:react", { detail: { messageId: m.id, emoji } }));
-          }}
-          onRetry={() => onSendRetry(i)}
-          onEdit={() => window.dispatchEvent(new CustomEvent("emberling:edit", { detail: { messageId: m.id } }))}
-        />
+        <MessageBubble key={m.id} msg={m} msgIndex={i} bubbleColor={settings.bubbleColor} onSendRetry={onSendRetry} />
       ))}
       {!!conversation.queued?.length && (
         <div className="tool-line" style={{ cursor: "default" }}>

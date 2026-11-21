@@ -9,7 +9,7 @@ const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
 
 const store = require("./store");
-const { PROVIDERS, providerById, resolveProvider, chatUrl } = require("./providers");
+const { PROVIDERS, providerById, resolveProvider, chatUrl, friendlyHttpError } = require("./providers");
 const { runAgentTurn } = require("./agent");
 const { scopeId, AgentStore } = require("./agent-store");
 const guard = require("./guard");
@@ -775,7 +775,7 @@ ipcMain.handle("providers:test", async (_e, { providerId, apiKey, baseUrl, model
         max_tokens: 5,
       }),
     });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}` };
+    if (!res.ok) return { ok: false, error: friendlyHttpError(provider.name || providerId, res.status, await res.text().catch(() => "")) };
     const json = await res.json();
     const text = json.choices?.[0]?.message?.content || "";
     return { ok: true, sample: String(text).slice(0, 80) };
@@ -866,10 +866,31 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
   const bot = bots.find((b) => b.id === botId) || null;
   const controller = new AbortController();
   activeTurns.set(conversationId, { controller, done });
-  const send = (type, payload) => {
+  const sendRaw = (type, payload) => {
     if (!mainWindow?.isDestroyed()) {
       mainWindow.webContents.send("agent:event", { conversationId, type, payload });
     }
+  };
+  // stream deltas coalesce into one IPC crossing per ~20ms — per-SSE-chunk
+  // sends (50-200/s) made the renderer copy every conversation on each arrival
+  // and starve the stream loop with its own event churn
+  let deltaBuf = "";
+  let deltaTimer = null;
+  const flushDeltas = () => {
+    if (deltaTimer) { clearTimeout(deltaTimer); deltaTimer = null; }
+    if (!deltaBuf) return;
+    const text = deltaBuf;
+    deltaBuf = "";
+    sendRaw("delta", { delta: text });
+  };
+  const send = (type, payload) => {
+    if (type !== "delta") {
+      flushDeltas(); // ordering: buffered text always precedes status/tool/done events
+      sendRaw(type, payload);
+      return;
+    }
+    deltaBuf += String(payload?.delta ?? "");
+    if (!deltaTimer) deltaTimer = setTimeout(flushDeltas, 20);
   };
 
   // approval plumbing: ask renderer, await its answer
@@ -1084,6 +1105,12 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
     const integTools = require("./integration-tools");
     const plugins = require("./plugins");
     const pluginDefs = plugins.agentToolDefs(store);
+    // only connectors the user actually wired up — unconfigured ones would just
+    // answer "not connected", so their schemas are dead weight on every request
+    const integDefs = integTools.connectedToolDefs({ getInteg });
+    // bot.skills stores skill IDs (BotsScreen picker) — resolve them to the
+    // actual skill objects; raw IDs rendered as "--- Skill: undefined ---"
+    const resolveBotSkills = (bot) => (bot?.skills || []).map((id) => require("./skills").get(store, id)).filter(Boolean);
 
     // Room orchestration (the original's group chats): when multiple Bots are
     // members, EVERY member processes the message in turn — each with its own
@@ -1108,12 +1135,12 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
           approvalMode: settings.approvalMode || "ask",
           botInstructions: mBot.instructions || "",
           botKnowledge: mBot.knowledge || [],
-          botSkills: mBot.skills || [],
+          botSkills: resolveBotSkills(mBot),
           mcpInstructions,
           memories,
           agentTools: settings.agentTools,
           signal: controller.signal,
-          extraToolDefs: [...mcpDefs, ...integTools.TOOL_DEFS, ...pluginDefs],
+          extraToolDefs: [...mcpDefs, ...integDefs, ...pluginDefs],
           toolContext: buildToolContext(mBot.id, mBot),
           events: {
             onStatus: (text) => send("status", { text }),
@@ -1137,12 +1164,12 @@ ipcMain.handle("agent:send", async (event, { conversationId, history, botId, roo
         approvalMode: settings.approvalMode || "ask",
         botInstructions: mBot?.instructions || "",
         botKnowledge: mBot?.knowledge || [],
-        botSkills: mBot?.skills || [],
+        botSkills: resolveBotSkills(mBot),
         mcpInstructions,
         memories,
         agentTools: settings.agentTools,
         signal: controller.signal,
-        extraToolDefs: [...mcpDefs, ...integTools.TOOL_DEFS, ...pluginDefs],
+        extraToolDefs: [...mcpDefs, ...integDefs, ...pluginDefs],
         toolContext: buildToolContext(singleBotId, mBot),
         events: {
           onStatus: (text) => send("status", { text }),

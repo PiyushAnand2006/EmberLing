@@ -27,6 +27,10 @@ export interface Message {
   voice?: { url: string; duration: number; transcript?: string };
   tools?: ToolRecord[];
   status?: string;
+  /** when this turn started (drives the elapsed counter on the pending pill) */
+  startedAt?: number;
+  /** which provider actually served this reply — shown when a fallback had to step in */
+  servedBy?: { provider: string; model: string; fallback?: boolean; failures?: { providerId: string; providerLabel?: string; message: string }[] };
   automation?: boolean;
   approval?: { id: string; title?: string; detail?: string; kind?: string } | null;
   approvalResolved?: boolean;
