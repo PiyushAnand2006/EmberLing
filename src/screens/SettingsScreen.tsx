@@ -288,6 +288,26 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
     toast("provider removed");
   };
 
+  // built-in (and legacy custom) providers: wipe the saved key/model/baseUrl
+  // and discovered models back to the original never-configured state
+  const hasSavedCreds = Object.keys(creds).length > 0;
+  const reset = () => {
+    if (!window.confirm(`Reset ${isDynamicCustom ? name : provider.name}? The saved key, model and discovered models will be deleted.`)) return;
+    setSettings((s) => ({
+      ...s,
+      providers: Object.fromEntries(Object.entries(s.providers).filter(([k]) => k !== provider.id)),
+      // if the reset one was active, promote the first remaining configured provider
+      activeProvider: s.activeProvider === provider.id ? Object.keys(s.providers).find((k) => k !== provider.id && s.providers[k]?.apiKey) || "" : s.activeProvider,
+    }));
+    setApiKey("");
+    setModel(provider.models[0]?.id || "");
+    setBaseUrl("");
+    setLiveModels([]);
+    setModelsNote("");
+    setTestResult(null);
+    toast("provider reset to original");
+  };
+
   // auto-load the provider's live model list when a key is available;
   // discovered ids persist into settings so the chat model menu sees them too
   const loadModels = async (keyOverride?: string) => {
@@ -369,6 +389,16 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {  const { setti
               onClick={() => setSettings((s) => ({ ...s, activeProvider: provider.id }))}
             >
               Use
+            </button>
+          )}
+          {hasSavedCreds && !isDynamicCustom && (
+            <button
+              className="btn subtle"
+              onClick={reset}
+              title="Reset to original — deletes the saved key, model and discovered models"
+              style={{ color: "var(--cursor-danger)" }}
+            >
+              Reset
             </button>
           )}
           {isDynamicCustom && (
